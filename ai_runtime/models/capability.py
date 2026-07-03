@@ -1,6 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
 
 class ProviderCapabilities(BaseModel):
+
+    model_config = ConfigDict(frozen=True)
+
+    chat: bool = True
 
     streaming: bool = False
 
@@ -11,7 +16,5 @@ class ProviderCapabilities(BaseModel):
     embeddings: bool = False
 
     reasoning: bool = False
-
-    json_mode: bool = False
 
     image_generation: bool = False

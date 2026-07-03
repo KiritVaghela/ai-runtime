@@ -1,4 +1,4 @@
-from ai_runtime.providers.provider import Provider
+from ai_runtime.providers.provider import LLMProvider
 
 class AgentRuntime:
     """
@@ -6,6 +6,6 @@ class AgentRuntime:
     """
     def __init__(
         self,
-        provider: Provider,
+        provider: LLMProvider,
     ):
         self.provider = provider

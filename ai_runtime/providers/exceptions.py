@@ -1,15 +1,18 @@
-
 class ProviderError(Exception):
-    pass
+    """Base provider exception."""
 
 
 class AuthenticationError(ProviderError):
-    pass
+    """Authentication failed."""
 
 
 class RateLimitError(ProviderError):
-    pass
+    """Rate limit exceeded."""
 
 
 class ModelNotFoundError(ProviderError):
-    pass
+    """Unknown model."""
+
+
+class ProviderNotSupportedError(ProviderError):
+    """Provider not registered."""

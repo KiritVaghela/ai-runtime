@@ -1,39 +1,27 @@
-from abc import ABC, abstractmethod
+from ai_runtime.models import ChatRequest
 
-from ai_runtime.models import (
-    ChatRequest,
-    ChatResponse,
-    ProviderCapabilities,
-)
+from .base import LLMProvider
+from .exceptions import ProviderError
 
-from .config import ProviderConfig
 
-class Provider(ABC):
+class BaseProvider(LLMProvider):
 
-    def __init__(self, config: ProviderConfig):
-        self.config = config
-
-    @property
-    @abstractmethod
-    def capabilities(self) -> ProviderCapabilities:
-        ...
-
-    @abstractmethod
-    async def chat(
+    def validate_request(
         self,
         request: ChatRequest,
-    ) -> ChatResponse:
-        ...
+    ) -> None:
 
-    @abstractmethod
-    async def stream(
-        self,
-        request: ChatRequest,
-    ):
-        ...
+        if not request.messages:
+            raise ProviderError(
+                "Request must contain at least one message."
+            )
 
-    @abstractmethod
-    async def list_models(
+    def map_exception(
         self,
-    ) -> list[str]:
-        ...
+        ex: Exception,
+    ) -> ProviderError:
+
+        if isinstance(ex, ProviderError):
+            return ex
+
+        return ProviderError(str(ex))

@@ -1,10 +1,16 @@
 from pydantic import BaseModel, ConfigDict
 
+from ai_runtime.models.enums import ProviderType
+
 
 class ProviderConfig(BaseModel):
+    """
+    Provider configuration.
+    """
+
     model_config = ConfigDict(frozen=True)
 
-    provider: str
+    provider: ProviderType
 
     model: str
 
@@ -12,6 +18,6 @@ class ProviderConfig(BaseModel):
 
     base_url: str | None = None
 
-    timeout: float = 60
+    timeout: float = 60.0
 
     max_retries: int = 2
