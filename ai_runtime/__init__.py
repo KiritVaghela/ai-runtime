@@ -1,7 +1,7 @@
-from .runtime import Runtime
+from .runtime import AgentRuntime
 from .version import __version__
 
 __all__ = [
-    "Runtime",
+    "AgentRuntime",
     "__version__",
 ]
