@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 from ai_runtime.models.enums import ProviderType
 
@@ -22,9 +22,9 @@ class ProviderConfig(BaseModel):
 
     max_retries: int = 2
 
+    @computed_field
     @property
     def litellm_model(self) -> str:
         if "/" in self.model:
             return self.model
-
         return f"{self.provider.value}/{self.model}"

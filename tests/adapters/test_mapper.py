@@ -30,6 +30,6 @@ def test_request_mapping():
         request
     )
 
-    assert payload["model"] == "gpt-4.1"
+    assert payload["model"] == config.litellm_model
     assert payload["messages"][0]["role"] == "user"
     assert payload["messages"][0]["content"] == "Hello"

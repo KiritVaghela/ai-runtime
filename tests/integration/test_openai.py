@@ -1,0 +1,28 @@
+import os,pytest
+from ai_runtime import AgentRuntime
+from ai_runtime.models import ChatRequest,ChatMessage
+from ai_runtime.models.enums import ProviderType
+from ai_runtime.providers.exceptions import RateLimitError
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"),reason="OPENAI_API_KEY missing")
+async def test_openai_chat():
+    agent_runtime = AgentRuntime.from_provider(
+        provider=ProviderType.OPENAI,
+        model="gpt-4.1-mini",
+        api_key=os.getenv("OPENAI_API_KEY")
+    )
+
+    try:
+
+        response = await agent_runtime.chat(
+            ChatRequest(messages=[ChatMessage.user("Say Hello")])
+        )
+        
+        assert response.message.content
+
+    except RateLimitError:
+        pytest.skip("OpenAI rate limit exceeded")
+
+
+    

@@ -7,7 +7,6 @@ from ai_runtime.models import (
     Usage,
 )
 from ai_runtime.providers.config import ProviderConfig
-from ai_runtime.providers.model_resolver import ModelResolver
 
 class LiteLLMMapper:
     """
@@ -20,7 +19,7 @@ class LiteLLMMapper:
         request: ChatRequest,
     ) -> dict[str, Any]:
         return {
-            "model": ModelResolver.resolve(config),
+            "model": config.litellm_model,
             "messages": [
                 LiteLLMMapper.to_message(m)
                 for m in request.messages
