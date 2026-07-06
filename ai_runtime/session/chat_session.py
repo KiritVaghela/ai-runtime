@@ -7,7 +7,8 @@ from ai_runtime.models import (
 )
 from ai_runtime.streaming.event import StreamEvent
 from ai_runtime.streaming.text import TextDeltaEvent
-
+from typing import TypeAlias
+Message: TypeAlias = ChatMessage | ChatRequest
 
 class ChatSession:
 
@@ -22,40 +23,53 @@ class ChatSession:
             or Conversation()
         )
 
+    def _prepare_request(
+        self,
+        message: Message,
+    ) -> ChatRequest:
+
+        if isinstance(message, ChatMessage):
+            self.conversation.add(message)
+
+            return ChatRequest(
+                messages=list(self.conversation.messages)
+            )
+
+        # Caller supplied a ChatRequest.
+        # Merge its messages into the session conversation.
+        self.conversation.extend(message.messages)
+
+        return ChatRequest(
+            messages=list(self.conversation.messages),
+            temperature=message.temperature,
+            max_tokens=message.max_tokens,
+            stream=message.stream,
+        )
+
     async def chat(
         self,
-        message: ChatMessage,
+        message: Message,
     ):
 
-        self.conversation.add(message)
+        request = self._prepare_request(message)
 
-        response = await self.provider.chat(
-            ChatRequest(
-                messages=self.conversation.messages
-            )
-        )
+        response = await self.provider.chat(request)
 
-        self.conversation.add(
-            response.message
-        )
+        self.conversation.add(response.message)
 
         return response
     
     
     async def stream(
         self,
-        message: ChatMessage,
+        message: Message,
     ) -> AsyncIterator[StreamEvent]:
 
-        self.conversation.add(message)
+        request = self._prepare_request(message)
 
         text = ""
 
-        async for event in self.provider.stream(
-            ChatRequest(
-                messages=self.conversation.messages
-            )
-        ):
+        async for event in self.provider.stream(request):
 
             if isinstance(event, TextDeltaEvent):
                 text += event.delta
