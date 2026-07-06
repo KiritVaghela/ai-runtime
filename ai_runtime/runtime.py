@@ -50,13 +50,4 @@ class AgentRuntime:
         return ChatSession(
             provider=self.provider,
         )
-
-
-    async def stream(
-        self,
-        request: ChatRequest,
-    ) -> AsyncIterator[StreamEvent]:
-
-        async for event in self.provider.stream(request):
-            yield event
     
