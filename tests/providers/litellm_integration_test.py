@@ -19,7 +19,6 @@ async def test_openai_chat():
     try:
         response = await runtime.chat(
             ChatRequest(
-                model="gpt-4.1-mini",
                 messages=[
                     ChatMessage.user("Say hello")
                 ],

@@ -3,14 +3,15 @@ from typing import Any
 
 from ai_runtime.models.message import ChatMessage
 from ai_runtime.models.request import ChatRequest
-
+from ai_runtime.providers.config import ProviderConfig
+from ai_runtime.providers.model_resolver import ModelResolver
 
 class LiteLLMRequestAdapter:
 
     @staticmethod
-    def to_request(request: ChatRequest) -> dict[str, Any]:
+    def to_request(config: ProviderConfig, request: ChatRequest) -> dict[str, Any]:
         return {
-            "model": request.model,
+            "model": ModelResolver.resolve(config.model),
             "messages": [
                 LiteLLMRequestAdapter.to_message(message)
                 for message in request.messages

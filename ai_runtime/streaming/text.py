@@ -15,4 +15,4 @@ class TextDeltaEvent(StreamEvent):
 
     type: StreamEventType = StreamEventType.TEXT_DELTA
 
-    text: str
+    delta: str

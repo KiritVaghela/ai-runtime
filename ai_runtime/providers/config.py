@@ -21,3 +21,10 @@ class ProviderConfig(BaseModel):
     timeout: float = 60.0
 
     max_retries: int = 2
+
+    @property
+    def litellm_model(self) -> str:
+        if "/" in self.model:
+            return self.model
+
+        return f"{self.provider.value}/{self.model}"

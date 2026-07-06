@@ -6,7 +6,8 @@ from ai_runtime.models import (
     ChatResponse,
     Usage,
 )
-
+from ai_runtime.providers.config import ProviderConfig
+from ai_runtime.providers.model_resolver import ModelResolver
 
 class LiteLLMMapper:
     """
@@ -15,10 +16,11 @@ class LiteLLMMapper:
 
     @staticmethod
     def to_request(
+        config: ProviderConfig,
         request: ChatRequest,
     ) -> dict[str, Any]:
         return {
-            "model": request.model,
+            "model": ModelResolver.resolve(config),
             "messages": [
                 LiteLLMMapper.to_message(m)
                 for m in request.messages

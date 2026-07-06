@@ -8,6 +8,9 @@ from ai_runtime.providers import (
     ProviderFactory,
 )
 
+from collections.abc import AsyncIterator
+from ai_runtime.streaming.event import StreamEvent
+
 class AgentRuntime:
     """
     Entry point for the AI Runtime SDK.
@@ -22,6 +25,15 @@ class AgentRuntime:
 
         return await self.provider.chat(request)
     
+    async def stream(
+        self,
+        request: ChatRequest,
+    ) -> AsyncIterator[StreamEvent]:
+
+        async for event in self.provider.stream(request):
+
+            yield event
+
     @classmethod
     def from_provider(
         cls,
@@ -41,3 +53,4 @@ class AgentRuntime:
         return cls(
             ProviderFactory.create(config)
         )
+    

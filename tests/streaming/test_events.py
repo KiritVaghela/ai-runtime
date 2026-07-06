@@ -6,14 +6,14 @@ from ai_runtime.streaming import (
     UsageEvent,
     ErrorEvent,
 )
-
+import pytest
 
 def test_text_delta_event():
 
-    event = TextDeltaEvent(text="Hello")
+    event = TextDeltaEvent(delta="Hello")
 
     assert event.type == StreamEventType.TEXT_DELTA
-    assert event.text == "Hello"
+    assert event.delta == "Hello"
 
 
 def test_usage_event():

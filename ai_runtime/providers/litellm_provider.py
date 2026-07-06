@@ -2,14 +2,19 @@ from litellm import acompletion
 
 from ai_runtime.providers.provider import BaseProvider
 
-from .litellm_mapper import LiteLLMMapper
-from .litellm_exception_mapper import LiteLLMExceptionMapper
+from ai_runtime.providers.litellm_mapper import LiteLLMMapper
+from ai_runtime.providers.litellm_exception_mapper import LiteLLMExceptionMapper
 
 from ai_runtime.models import (
     ChatRequest,
     ChatResponse,
     ProviderCapabilities,
 )
+
+
+from ai_runtime.providers.litellm_stream_parser import LiteLLMStreamParser
+from collections.abc import AsyncIterator
+from ai_runtime.streaming.event import StreamEvent
 
 class LiteLLMProvider(BaseProvider):
 
@@ -30,7 +35,7 @@ class LiteLLMProvider(BaseProvider):
 
         try:
 
-            payload = LiteLLMMapper.to_request(request)
+            payload = LiteLLMMapper.to_request(self.config, request)
 
             response = await acompletion(
                 **payload,
@@ -47,24 +52,34 @@ class LiteLLMProvider(BaseProvider):
     async def stream(
         self,
         request: ChatRequest,
-    ):
-        stream = await acompletion(
-            model=request.model,
-            messages=[LiteLLMMapper.to_message(m) for m in request.messages],
-            temperature=request.temperature,
-            stream=True,
-            max_tokens=request.max_tokens,
-        )
+    ) -> AsyncIterator[StreamEvent]:
 
-        async for chunk in stream:
+        self.validate_request(request)
 
-            delta = chunk.choices[0].delta.content
+        payload = LiteLLMMapper.to_request(self.config, request)
 
-            if delta:
+        payload["stream"] = True
 
-                yield TextDeltaEvent(
-                    text=delta
-                )
+        parser = LiteLLMStreamParser()
+
+        try:
+
+            response = await acompletion(
+                **payload,
+                api_key=self.config.api_key,
+                base_url=self.config.base_url,
+                timeout=self.config.timeout,
+            )
+
+            async for chunk in response:
+
+                for event in parser.parse(chunk):
+
+                    yield event
+
+        except Exception as ex:
+
+            raise LiteLLMExceptionMapper.map(ex) from ex
     
     
 
