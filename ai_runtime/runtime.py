@@ -10,6 +10,9 @@ from ai_runtime.models import (
     ChatRequest,
     ChatResponse,
 )
+from ai_runtime.session import (
+     ChatSession
+)
 from ai_runtime.streaming import StreamEvent
 
 from collections.abc import AsyncIterator
@@ -43,12 +46,11 @@ class AgentRuntime:
 
         return cls(provider)
 
-    async def chat(
-        self,
-        request: ChatRequest,
-    ) -> ChatResponse:
+    def create_session(self) -> ChatSession:
+        return ChatSession(
+            provider=self.provider,
+        )
 
-        return await self.provider.chat(request)
 
     async def stream(
         self,
