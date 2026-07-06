@@ -30,13 +30,11 @@ async def test_stream():
 
     completed = False
 
-    async for event in runtime.stream(
-        ChatRequest(
-            messages=[
-                ChatMessage.user(
-                    "Reply with exactly: Hello"
-                )
-            ]
+    session = runtime.create_session()
+
+    async for event in session.stream(
+        ChatMessage.user(
+            "Reply with exactly: Hello"
         )
     ):
 

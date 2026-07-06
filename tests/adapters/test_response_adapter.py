@@ -30,10 +30,12 @@ from ai_runtime.providers.litellm_mapper import (
     LiteLLMMapper,
 )
 
-response = LiteLLMMapper.from_response(
-    FakeResponse()
-)
+def test_response_adapter():
 
-assert response.message.content == "Hello"
+    response = LiteLLMMapper.from_response(
+        FakeResponse()
+    )
 
-assert response.usage.total_tokens == 15
+    assert response.message.content == "Hello"
+
+    assert response.usage.total_tokens == 15

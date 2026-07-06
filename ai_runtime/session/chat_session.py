@@ -41,21 +41,6 @@ class ChatSession:
 
         return response
     
-    async def chat(
-        self,
-        request: ChatRequest,
-    ):
-        self.conversation.extend(
-            request.messages
-        )
-
-        response = await self.provider.chat(request)
-
-        self.conversation.add(
-            response.message
-        )
-
-        return response
     
     async def stream(
         self,
