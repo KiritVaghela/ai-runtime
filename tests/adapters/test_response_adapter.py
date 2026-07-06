@@ -26,7 +26,7 @@ class FakeResponse:
     usage = FakeUsage()
 
 
-from ai_runtime.providers.litellm.mapper import (
+from ai_runtime.providers.litellm_mapper import (
     LiteLLMMapper,
 )
 
