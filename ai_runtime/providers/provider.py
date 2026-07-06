@@ -1,7 +1,7 @@
 from ai_runtime.models import ChatRequest
 
 from .base import LLMProvider
-from .exceptions import ProviderError
+from .litellm.exception_mapper import ProviderError
 
 
 class BaseProvider(LLMProvider):
