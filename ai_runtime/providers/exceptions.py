@@ -49,3 +49,6 @@ class ContentFilterError(ProviderError):
 
 class ServerError(ProviderError):
     pass
+
+class ProviderNotSupportedError(ProviderError):
+    pass

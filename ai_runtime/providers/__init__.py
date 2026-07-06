@@ -1,11 +1,11 @@
 from .base import LLMProvider
 from .provider import BaseProvider
-from .factory import ProviderFactory
 from .config import ProviderConfig
+from .registry import ProviderRegistry
 
 __all__ = [
     "LLMProvider",
     "BaseProvider",
-    "ProviderFactory",
     "ProviderConfig",
+    "ProviderRegistry",
 ]
