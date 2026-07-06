@@ -8,6 +8,8 @@ from ai_runtime.models import (
 
 from .config import ProviderConfig
 
+from collections.abc import AsyncIterator
+from ai_runtime.streaming import StreamEvent
 
 class LLMProvider(ABC):
 
@@ -34,7 +36,7 @@ class LLMProvider(ABC):
     async def stream(
         self,
         request: ChatRequest,
-    ):
+    ) -> AsyncIterator[StreamEvent]:
         """
         Streaming completion.
         """

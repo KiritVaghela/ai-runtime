@@ -48,7 +48,25 @@ class LiteLLMProvider(BaseProvider):
         self,
         request: ChatRequest,
     ):
-        raise NotImplementedError()
+        stream = await acompletion(
+            model=request.model,
+            messages=[LiteLLMMapper.to_message(m) for m in request.messages],
+            temperature=request.temperature,
+            stream=True,
+            max_tokens=request.max_tokens,
+        )
+
+        async for chunk in stream:
+
+            delta = chunk.choices[0].delta.content
+
+            if delta:
+
+                yield TextDeltaEvent(
+                    text=delta
+                )
+    
+    
 
     async def list_models(self) -> list[str]:
         return []
