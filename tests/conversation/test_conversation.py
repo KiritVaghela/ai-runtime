@@ -1,6 +1,4 @@
-from ai_runtime.conversation import Conversation
-from ai_runtime.models import ChatMessage
-
+from ai_runtime.conversation import Conversation, ChatMessage
 
 def test_new_conversation_is_empty():
     conversation = Conversation()

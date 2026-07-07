@@ -2,7 +2,7 @@ from copy import deepcopy
 
 from pydantic import BaseModel, Field
 
-from ai_runtime.models import ChatMessage
+from .message import ChatMessage
 
 
 class Conversation(BaseModel):

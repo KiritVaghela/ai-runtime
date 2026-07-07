@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from ai_runtime.models.enums import ProviderType
+from .enums import ProviderType
 from .sdk_info import SDKInfo
 
 from .capabilities import (

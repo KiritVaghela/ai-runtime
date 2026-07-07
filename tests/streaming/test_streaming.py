@@ -4,9 +4,10 @@ import os
 import pytest
 
 from ai_runtime import AgentRuntime
-from ai_runtime.models import ChatMessage
-from ai_runtime.models import ChatRequest
-from ai_runtime.models.enums import ProviderType
+from ai_runtime.conversation import ( 
+    ChatMessage, ChatRequest
+)
+from ai_runtime.providers.enums import ProviderType
 from ai_runtime.streaming import (
     CompletedEvent,
     TextDeltaEvent,

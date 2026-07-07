@@ -1,5 +1,5 @@
 
-from ai_runtime.models.enums import ProviderType
+from ai_runtime.providers.enums import ProviderType
 from ai_runtime.providers import (
     ProviderConfig,
     ProviderRegistry

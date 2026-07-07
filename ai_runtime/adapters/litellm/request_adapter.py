@@ -1,8 +1,8 @@
 
 from typing import Any
 
-from ai_runtime.models.message import ChatMessage
-from ai_runtime.models.request import ChatRequest
+from ai_runtime.conversation.message import ChatMessage
+from ai_runtime.conversation.request import ChatRequest
 from ai_runtime.providers.config import ProviderConfig
 
 class LiteLLMRequestAdapter:

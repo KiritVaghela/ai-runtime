@@ -1,5 +1,5 @@
 from ai_runtime.providers.config import ProviderConfig
-from ai_runtime.models.enums import ProviderType
+from ai_runtime.providers.enums import ProviderType
 
 def test_model_resolution():
     cfg=ProviderConfig(provider=ProviderType.OPENAI,model="gpt-4.1")

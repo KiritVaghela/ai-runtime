@@ -1,7 +1,7 @@
 
 from typing import Any
 
-from ai_runtime.models import Usage
+from ai_runtime.conversation import Usage
 from ai_runtime.streaming import (
     CompletedEvent,
     StreamEvent,

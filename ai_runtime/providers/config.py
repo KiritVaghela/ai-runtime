@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict, computed_field
 
-from ai_runtime.models.enums import ProviderType
+from .enums import ProviderType
 
 
 class ProviderConfig(BaseModel):

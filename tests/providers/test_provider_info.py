@@ -4,7 +4,7 @@ from ai_runtime.providers import (
     ProviderCapabilities,
 )
 
-from ai_runtime.models.enums import (
+from ai_runtime.providers.enums import (
     ProviderType,
 )
 

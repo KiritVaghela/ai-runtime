@@ -1,7 +1,7 @@
 import os,pytest
 from ai_runtime import AgentRuntime
-from ai_runtime.models import ChatMessage
-from ai_runtime.models.enums import ProviderType
+from ai_runtime.conversation import ChatMessage
+from ai_runtime.providers.enums import ProviderType
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not os.getenv("GROQ_API_KEY"),reason="GROQ_API_KEY missing")

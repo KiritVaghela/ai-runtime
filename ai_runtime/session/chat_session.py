@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 
-from ai_runtime.conversation import Conversation
-from ai_runtime.models import (
+from ai_runtime.conversation import (
+    Conversation,
     ChatMessage,
     ChatRequest,
 )

@@ -1,5 +1,5 @@
 
-from ai_runtime.models import ChatRequest
+from ai_runtime.conversation import ChatRequest
 from .provider_info import ProviderInfo
 
 from .base import LLMProvider

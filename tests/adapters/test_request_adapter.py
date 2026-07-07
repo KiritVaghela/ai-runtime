@@ -1,9 +1,8 @@
-from ai_runtime.models.request import ChatRequest
-from ai_runtime.models.message import ChatMessage
+from ai_runtime.conversation import ChatRequest, ChatMessage
 from ai_runtime.adapters.litellm.request_adapter import LiteLLMRequestAdapter
 
 from ai_runtime.providers.config import ProviderConfig
-from ai_runtime.models.enums import ProviderType
+from ai_runtime.providers.enums import ProviderType
 
 def test_request_adapter():
         

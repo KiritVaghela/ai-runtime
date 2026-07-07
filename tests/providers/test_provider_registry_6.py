@@ -1,7 +1,7 @@
 from ai_runtime.providers.default_registry import (
     create_default_registry,
 )
-from ai_runtime.models.enums import ProviderType
+from ai_runtime.providers.enums import ProviderType
 
 
 def test_default_registry():

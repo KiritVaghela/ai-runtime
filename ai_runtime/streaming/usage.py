@@ -1,7 +1,7 @@
 
 from pydantic import ConfigDict
 
-from ai_runtime.models import Usage
+from ai_runtime.conversation import Usage
 
 from .event import StreamEvent
 from .enums import StreamEventType

@@ -1,5 +1,5 @@
 
-from ai_runtime.models import (
+from ai_runtime.conversation import (
     ChatMessage,
     ChatRequest,
 )
@@ -9,7 +9,7 @@ from ai_runtime.providers.litellm_mapper import (
 )
 
 from ai_runtime.providers.config import ProviderConfig
-from ai_runtime.models.enums import ProviderType
+from ai_runtime.providers.enums import ProviderType
 
 
 def test_request_mapping():

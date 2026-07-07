@@ -5,10 +5,7 @@ from .provider import BaseProvider
 from .litellm_mapper import LiteLLMMapper
 from .litellm_exception_mapper import LiteLLMExceptionMapper
 
-from ai_runtime.models import (
-    ChatRequest,
-    ChatResponse,
-)
+from ai_runtime.conversation import ChatRequest
 
 from collections.abc import AsyncIterator
 from ai_runtime.streaming.event import StreamEvent
@@ -18,7 +15,7 @@ from .sdk_info import SDKInfo
 from .capabilities import ProviderCapabilities
 
 from .litellm_stream_parser import LiteLLMStreamParser
-from ai_runtime.models.enums import ProviderType
+from ai_runtime.providers.enums import ProviderType
 
 _PROVIDER_CAPABILITIES = {
     ProviderType.OPENAI: ProviderCapabilities(

@@ -2,7 +2,7 @@ import pytest
 
 from ai_runtime.providers.capabilities import ProviderCapabilities
 
-from ai_runtime.models.enums import ProviderType
+from ai_runtime.providers.enums import ProviderType
 from ai_runtime.runtime import AgentRuntime
 import os
 

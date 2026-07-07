@@ -1,7 +1,7 @@
 import os,pytest
 from ai_runtime import AgentRuntime
-from ai_runtime.models import ChatRequest,ChatMessage
-from ai_runtime.models.enums import ProviderType
+from ai_runtime.conversation import ChatMessage
+from ai_runtime.providers.enums import ProviderType
 from ai_runtime.providers.exceptions import RateLimitError
 
 @pytest.mark.asyncio

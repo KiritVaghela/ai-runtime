@@ -1,4 +1,4 @@
-from ai_runtime.models import Usage
+from ai_runtime.conversation import Usage
 from ai_runtime.streaming import (
     CompletedEvent,
     StreamEventType,
@@ -6,7 +6,6 @@ from ai_runtime.streaming import (
     UsageEvent,
     ErrorEvent,
 )
-import pytest
 
 def test_text_delta_event():
 
