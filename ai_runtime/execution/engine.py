@@ -44,6 +44,8 @@ class ExecutionEngine:
 
         response = await context.provider.chat(request)
 
+        context.event_bus.publish(response)
+
         context.conversation.add(response.message)
 
         return response
@@ -62,6 +64,8 @@ class ExecutionEngine:
         text = ""
 
         async for event in context.provider.stream(request):
+
+            context.event_bus.publish(event)
 
             if isinstance(event, TextDeltaEvent):
                 text += event.delta

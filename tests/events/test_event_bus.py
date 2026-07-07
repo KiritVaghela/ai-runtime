@@ -1,4 +1,4 @@
-from ai_runtime.events import EventBus
+from ai_runtime.eventing import EventBus
 
 
 def test_publish():

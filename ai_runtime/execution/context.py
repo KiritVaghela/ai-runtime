@@ -3,6 +3,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from ai_runtime.conversation import Conversation
+from ai_runtime.eventing import EventBus
 
 
 class ExecutionContext(BaseModel):
@@ -23,4 +24,8 @@ class ExecutionContext(BaseModel):
 
     variables: dict[str, Any] = Field(
         default_factory=dict
+    )
+
+    event_bus: EventBus = Field(
+        default_factory=EventBus
     )
