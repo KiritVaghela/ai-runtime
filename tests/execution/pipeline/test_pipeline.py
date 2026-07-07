@@ -1,8 +1,11 @@
 from ai_runtime.execution.pipeline import (
     ExecutionPipeline, 
-    ExecutionStage
+    ExecutionStage,
 )
 from ai_runtime.execution import ExecutionContext
+from ai_runtime.execution.pipeline import RequestBuilderStage, LLMStage
+from ai_runtime.execution.engine import ExecutionEngine
+
 import pytest
 
 class DummyProvider:
@@ -81,3 +84,23 @@ def test_clear_pipeline():
     pipeline.clear()
 
     assert pipeline.stages == []
+
+@pytest.mark.asyncio
+async def pipeline_test():
+    pipeline = (
+        ExecutionPipeline()
+            .add(RequestBuilderStage())
+            .add(LLMStage())
+    )
+
+    context = await pipeline.execute(context)
+
+    assert context.response.message.content == "Hello"
+
+def test_default_pipeline():
+
+    engine = ExecutionEngine()
+
+    assert len(
+        engine.pipeline.stages
+    ) == 2

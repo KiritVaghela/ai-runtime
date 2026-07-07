@@ -2,12 +2,18 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ai_runtime.conversation import Conversation
-from ai_runtime.eventing import EventBus
-from ai_runtime.providers import BaseProvider
-from ai_runtime.conversation import (
+from ..conversation import Conversation
+from ..eventing import EventBus
+from ..conversation import (
     ChatRequest, ChatResponse
 )
+
+from .mode import ExecutionMode
+from collections.abc import AsyncIterator
+
+from ..streaming import StreamEvent
+from ..conversation import Usage
+from ..streaming import FinishReason
 
 class ExecutionContext(BaseModel):
 
@@ -15,12 +21,31 @@ class ExecutionContext(BaseModel):
         arbitrary_types_allowed=True,
     )
 
-    provider: BaseProvider
+    provider: Any
 
     conversation: Conversation = Field(
         default_factory=Conversation
     )
 
+    #
+    # Built during execution
+    #
+    request: ChatRequest | None = None
+
+    response: ChatResponse | None = None
+
+    #
+    # Execution Options
+    #
+    temperature: float = 0.7
+
+    max_tokens: int | None = None
+
+    mode: ExecutionMode = ExecutionMode.CHAT
+
+    #
+    # Runtime State
+    #
     metadata: dict[str, Any] = Field(
         default_factory=dict
     )
@@ -33,8 +58,12 @@ class ExecutionContext(BaseModel):
         default_factory=EventBus
     )
 
-    request: ChatRequest | None = None
+    stream: AsyncIterator[
+        StreamEvent
+    ] | None = None
 
-    response: ChatResponse | None = None
+    assistant_text: str = ""
 
-    stream: bool = False
+    usage: Usage | None = None
+
+    finish_reason: FinishReason | None = None

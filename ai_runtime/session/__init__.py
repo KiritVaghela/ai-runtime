@@ -1,1 +1,1 @@
-from .chat_session import ChatSession
+from .session import Session

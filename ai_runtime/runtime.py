@@ -8,7 +8,7 @@ from ai_runtime.providers.default_registry import (
 )
 
 from ai_runtime.session import (
-     ChatSession
+     Session
 )
 
 class AgentRuntime:
@@ -39,8 +39,8 @@ class AgentRuntime:
 
         return cls(provider)
 
-    def create_session(self) -> ChatSession:
-        return ChatSession(
+    def create_session(self) -> Session:
+        return Session(
             provider=self.provider,
         )
     

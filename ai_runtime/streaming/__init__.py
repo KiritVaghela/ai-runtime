@@ -4,6 +4,7 @@ from .text import TextDeltaEvent
 from .usage import UsageEvent
 from .completed import CompletedEvent
 from .error import ErrorEvent
+from .finish_reason import FinishReason
 
 __all__ = [
     "StreamEvent",
@@ -12,4 +13,5 @@ __all__ = [
     "UsageEvent",
     "CompletedEvent",
     "ErrorEvent",
+    "FinishReason"
 ]

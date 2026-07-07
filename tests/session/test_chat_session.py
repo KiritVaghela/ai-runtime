@@ -4,7 +4,7 @@ from ai_runtime.conversation import (
     ChatMessage,
     ChatResponse,
 )
-from ai_runtime.session import ChatSession
+from ai_runtime.session import Session
 
 
 class FakeProvider:
@@ -21,7 +21,7 @@ class FakeProvider:
 @pytest.mark.asyncio
 async def test_session_updates_history():
 
-    session = ChatSession(
+    session = Session(
         provider=FakeProvider()
     )
 

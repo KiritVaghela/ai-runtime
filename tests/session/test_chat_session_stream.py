@@ -4,7 +4,7 @@ from ai_runtime.conversation import (
     ChatMessage,
     Usage,
 )
-from ai_runtime.session import ChatSession
+from ai_runtime.session import Session
 from ai_runtime.streaming import (
     CompletedEvent,
     TextDeltaEvent,
@@ -33,7 +33,7 @@ class FakeProvider:
 @pytest.mark.asyncio
 async def test_session_stream():
 
-    session = ChatSession(
+    session = Session(
         provider=FakeProvider()
     )
 
