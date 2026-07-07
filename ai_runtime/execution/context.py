@@ -4,7 +4,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ai_runtime.conversation import Conversation
 from ai_runtime.eventing import EventBus
-
+from ai_runtime.providers import BaseProvider
+from ai_runtime.conversation import (
+    ChatRequest, ChatResponse
+)
 
 class ExecutionContext(BaseModel):
 
@@ -12,7 +15,7 @@ class ExecutionContext(BaseModel):
         arbitrary_types_allowed=True,
     )
 
-    provider: Any
+    provider: BaseProvider
 
     conversation: Conversation = Field(
         default_factory=Conversation
@@ -29,3 +32,9 @@ class ExecutionContext(BaseModel):
     event_bus: EventBus = Field(
         default_factory=EventBus
     )
+
+    request: ChatRequest | None = None
+
+    response: ChatResponse | None = None
+
+    stream: bool = False

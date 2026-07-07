@@ -15,8 +15,9 @@ class ExecutionPipeline:
     def add(
         self,
         stage: ExecutionStage,
-    ) -> None:
+    ) -> "ExecutionPipeline":
         self._stages.append(stage)
+        return self
 
     def remove(
         self,
