@@ -1,29 +1,58 @@
 from litellm import acompletion
 
-from ai_runtime.providers.provider import BaseProvider
+from .provider import BaseProvider
 
-from ai_runtime.providers.litellm_mapper import LiteLLMMapper
-from ai_runtime.providers.litellm_exception_mapper import LiteLLMExceptionMapper
+from .litellm_mapper import LiteLLMMapper
+from .litellm_exception_mapper import LiteLLMExceptionMapper
 
 from ai_runtime.models import (
     ChatRequest,
     ChatResponse,
-    ProviderCapabilities,
 )
 
-
-from ai_runtime.providers.litellm_stream_parser import LiteLLMStreamParser
 from collections.abc import AsyncIterator
 from ai_runtime.streaming.event import StreamEvent
+
+from .provider_info import ProviderInfo
+from .sdk_info import SDKInfo
+from .capabilities import ProviderCapabilities
+
+from .litellm_stream_parser import LiteLLMStreamParser
+from ai_runtime.models.enums import ProviderType
+
+_PROVIDER_CAPABILITIES = {
+    ProviderType.OPENAI: ProviderCapabilities(
+        tools=True,
+        vision=True,
+        structured_output=True,
+    ),
+    ProviderType.GROQ: ProviderCapabilities(
+        tools=True,
+        structured_output=True,
+    ),
+    ProviderType.ANTHROPIC: ProviderCapabilities(
+        tools=True,
+        vision=True,
+        reasoning=True,
+    ),
+}
 
 class LiteLLMProvider(BaseProvider):
 
     @property
-    def capabilities(self) -> ProviderCapabilities:
+    def info(self):
 
-        return ProviderCapabilities(
-            chat=True,
-            streaming=True,
+        return ProviderInfo(
+            provider=self.config.provider,
+            model=self.config.model,
+            sdkInfo=SDKInfo(
+                sdk="LiteLLM",
+                version="1.75.0"
+            ),
+            capabilities = _PROVIDER_CAPABILITIES.get(
+                self.config.provider,
+                ProviderCapabilities(),
+            )
         )
 
     async def chat(

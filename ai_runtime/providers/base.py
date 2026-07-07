@@ -3,13 +3,13 @@ from abc import ABC, abstractmethod
 from ai_runtime.models import (
     ChatRequest,
     ChatResponse,
-    ProviderCapabilities,
 )
 
 from .config import ProviderConfig
 
 from collections.abc import AsyncIterator
 from ai_runtime.streaming import StreamEvent
+from .provider_info import ProviderInfo
 
 class LLMProvider(ABC):
 
@@ -18,7 +18,7 @@ class LLMProvider(ABC):
 
     @property
     @abstractmethod
-    def capabilities(self) -> ProviderCapabilities:
+    def info(self) -> ProviderInfo:
         """
         Supported capabilities.
         """

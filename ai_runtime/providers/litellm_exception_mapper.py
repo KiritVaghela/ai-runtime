@@ -8,7 +8,7 @@ from litellm.exceptions import (
     InternalServerError,
 )
 
-from ai_runtime.providers.exceptions import (
+from .exceptions import (
     AuthenticationError,
     RateLimitError,
     ConnectionError,

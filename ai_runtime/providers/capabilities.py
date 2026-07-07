@@ -1,20 +1,20 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 
 class ProviderCapabilities(BaseModel):
 
-    model_config = ConfigDict(frozen=True)
-
     chat: bool = True
 
-    streaming: bool = False
+    streaming: bool = True
 
     tools: bool = False
 
     vision: bool = False
 
-    embeddings: bool = False
+    structured_output: bool = False
 
     reasoning: bool = False
+
+    embeddings: bool = False
 
     image_generation: bool = False

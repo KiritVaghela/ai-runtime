@@ -1,7 +1,7 @@
 from typing import Type
 
 from ai_runtime.models.enums import ProviderType
-from ai_runtime.providers.config import ProviderConfig
+from .config import ProviderConfig
 
 from  .exceptions import ProviderNotSupportedError
 

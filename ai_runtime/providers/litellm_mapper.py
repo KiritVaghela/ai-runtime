@@ -6,7 +6,7 @@ from ai_runtime.models import (
     ChatResponse,
     Usage,
 )
-from ai_runtime.providers.config import ProviderConfig
+from .config import ProviderConfig
 
 class LiteLLMMapper:
     """
