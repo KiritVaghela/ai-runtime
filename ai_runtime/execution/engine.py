@@ -56,11 +56,23 @@ class ExecutionEngine:
 
         context.mode = ExecutionMode.STREAM
 
+        if isinstance(message, ChatMessage):
+
+            context.conversation.add(message)
+
+        elif isinstance(message, ChatRequest):
+
+            context.conversation.extend(
+                message.messages
+            )
+
+            context.temperature = message.temperature
+            context.max_tokens = message.max_tokens
+    
+
         context = await self.pipeline.execute(
             context
         )
-
-        text = ""
 
         processor = EventProcessor(context)
         

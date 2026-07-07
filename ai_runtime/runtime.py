@@ -11,10 +11,17 @@ from ai_runtime.session import (
      Session
 )
 
+from ai_runtime.execution import ExecutionContext
+from ai_runtime.execution import ExecutionEngine
+
+
 class AgentRuntime:
 
-    def __init__(self, provider):
-        self.provider = provider
+    def __init__(
+        self,
+        registry: ProviderRegistry | None = None,
+    ):
+        self.registry = registry or create_default_registry()
 
     @classmethod
     def from_provider(
@@ -26,21 +33,31 @@ class AgentRuntime:
         registry: ProviderRegistry | None = None,
     ) -> "AgentRuntime":
 
-        config = ProviderConfig(
+        runtime = cls(registry)
+
+        runtime._config = ProviderConfig(
             provider=provider,
             model=model,
             api_key=api_key,
             base_url=base_url,
         )
 
-        registry = registry or create_default_registry()
-
-        provider = registry.create(config)
-
-        return cls(provider)
+        return runtime
 
     def create_session(self) -> Session:
+
+        provider = self.registry.create(
+            self._config
+        )
+
+        context = ExecutionContext(
+            provider=provider,
+        )
+
+        engine = ExecutionEngine()
+
         return Session(
-            provider=self.provider,
+            context=context,
+            engine=engine
         )
     

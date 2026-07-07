@@ -32,7 +32,9 @@ def test_runtime_uses_registry():
         registry=registry,
     )
 
+    session = runtime.create_session()
+
     assert isinstance(
-        runtime.provider,
+        session.context.provider,
         DummyProvider,
     )

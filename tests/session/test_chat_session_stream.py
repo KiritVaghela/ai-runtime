@@ -11,6 +11,8 @@ from ai_runtime.streaming import (
     UsageEvent,
 )
 
+from ai_runtime.execution import ExecutionContext, ExecutionEngine
+
 
 class FakeProvider:
 
@@ -34,7 +36,10 @@ class FakeProvider:
 async def test_session_stream():
 
     session = Session(
-        provider=FakeProvider()
+        context=ExecutionContext(
+            provider=FakeProvider(),
+        ),
+        engine=ExecutionEngine()
     )
 
     events = []
@@ -50,8 +55,8 @@ async def test_session_stream():
 
     assert events[1].delta == "lo"
 
-    assert len(session.conversation.messages) == 2
+    assert len(session.context.conversation.messages) == 2
 
-    assert session.conversation.messages[0].content == "Say Hello"
+    assert session.context.conversation.messages[0].content == "Say Hello"
 
-    assert session.conversation.messages[1].content == "Hello"
+    assert session.context.conversation.messages[1].content == "Hello"

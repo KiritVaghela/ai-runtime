@@ -60,18 +60,35 @@ async def test_engine_stream():
 
     engine = ExecutionEngine()
 
-    text = ""
+    received_events = []
 
     async for event in engine.stream(
         context,
         ChatMessage.user("Hi"),
     ):
+        received_events.append(event)
 
-        if isinstance(event, TextDeltaEvent):
-            text += event.delta
+    #
+    # Verify streamed events
+    #
+    assert len(received_events) == 3
 
-    assert text == "Hello"
+    assert isinstance(received_events[0], TextDeltaEvent)
+    assert isinstance(received_events[1], TextDeltaEvent)
+    assert isinstance(received_events[2], CompletedEvent)
 
+    #
+    # Verify accumulated assistant message
+    #
+    assert context.assistant_text == "Hello"
+
+    #
+    # Verify conversation history
+    #
     assert len(context.conversation.messages) == 2
 
+    assert context.conversation.messages[0].role == "user"
+    assert context.conversation.messages[0].content == "Hi"
+
+    assert context.conversation.messages[1].role == "assistant"
     assert context.conversation.messages[1].content == "Hello"

@@ -47,8 +47,10 @@ def test_openai_provider_capabilities():
         api_key=os.getenv("OPENAI_API_KEY")
     )
 
-    assert runtime.provider.info.provider == ProviderType.OPENAI
+    session = runtime.create_session()
 
-    assert runtime.provider.info.capabilities.chat
+    assert session.context.provider.info.provider == ProviderType.OPENAI
 
-    assert runtime.provider.info.capabilities.streaming
+    assert session.context.provider.info.capabilities.chat
+
+    assert session.context.provider.info.capabilities.streaming

@@ -24,14 +24,13 @@ async def test_stream():
     runtime = AgentRuntime.from_provider(
         provider=ProviderType.GROQ,
         model="llama-3.3-70b-versatile",
-        api_key=os.getenv("GROQ_API_KEY")
+        api_key=os.getenv("GROQ_API_KEY"),
     )
 
-    text = ""
-
-    completed = False
-
     session = runtime.create_session()
+
+    text = ""
+    completed = False
 
     async for event in session.stream(
         ChatRequest(
@@ -42,12 +41,22 @@ async def test_stream():
             ]
         )
     ):
-
         if isinstance(event, TextDeltaEvent):
             text += event.delta
 
-        if isinstance(event, CompletedEvent):
+        elif isinstance(event, CompletedEvent):
             completed = True
 
     assert completed
     assert "Hello" in text
+
+    #
+    # Verify session conversation
+    #
+    assert len(session.context.conversation.messages) == 2
+
+    assert session.context.conversation.messages[0].role.value == "user"
+    assert session.context.conversation.messages[0].content == "Reply with exactly: Hello"
+
+    assert session.context.conversation.messages[1].role.value == "assistant"
+    assert "Hello" in session.context.conversation.messages[1].content

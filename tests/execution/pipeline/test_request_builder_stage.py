@@ -7,7 +7,7 @@ from ai_runtime.conversation import (
     Conversation,
     ChatMessage,
 )
-
+from ai_runtime.execution.mode import ExecutionMode
 
 class DummyProvider:
     pass
@@ -69,7 +69,7 @@ async def test_request_options():
         conversation=conversation,
         temperature=0.2,
         max_tokens=100,
-        stream=True,
+        mode=ExecutionMode.STREAM
     )
 
     context = await RequestBuilderStage().execute(context)
