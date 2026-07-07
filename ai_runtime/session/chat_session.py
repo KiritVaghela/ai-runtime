@@ -1,14 +1,17 @@
 from collections.abc import AsyncIterator
 
+from ai_runtime.execution import (
+    ExecutionContext,
+    ExecutionEngine,
+)
+
 from ai_runtime.conversation import (
     Conversation,
     ChatMessage,
     ChatRequest,
 )
-from ai_runtime.streaming.event import StreamEvent
-from ai_runtime.streaming.text import TextDeltaEvent
-from typing import TypeAlias
-Message: TypeAlias = ChatMessage | ChatRequest
+from ai_runtime.streaming import StreamEvent
+
 
 class ChatSession:
 
@@ -17,69 +20,36 @@ class ChatSession:
         provider,
         conversation=None,
     ):
-        self.provider = provider
-        self.conversation = (
-            conversation
-            or Conversation()
+        self.context = ExecutionContext(
+            provider=provider,
+            conversation=conversation or Conversation(),
         )
 
-    def _prepare_request(
-        self,
-        message: Message,
-    ) -> ChatRequest:
+        self.engine = ExecutionEngine()
 
-        if isinstance(message, ChatMessage):
-            self.conversation.add(message)
-
-            return ChatRequest(
-                messages=list(self.conversation.messages)
-            )
-
-        # Caller supplied a ChatRequest.
-        # Merge its messages into the session conversation.
-        self.conversation.extend(message.messages)
-
-        return ChatRequest(
-            messages=list(self.conversation.messages),
-            temperature=message.temperature,
-            max_tokens=message.max_tokens,
-            stream=message.stream,
-        )
+    @property
+    def conversation(self):
+        return self.context.conversation
 
     async def chat(
         self,
-        message: Message,
+        message: ChatMessage | ChatRequest,
     ):
-
-        request = self._prepare_request(message)
-
-        response = await self.provider.chat(request)
-
-        self.conversation.add(response.message)
-
-        return response
-    
-    
-    async def stream(
-        self,
-        message: Message,
-    ) -> AsyncIterator[StreamEvent]:
-
-        request = self._prepare_request(message)
-
-        text = ""
-
-        async for event in self.provider.stream(request):
-
-            if isinstance(event, TextDeltaEvent):
-                text += event.delta
-
-            yield event
-
-        self.conversation.add(
-            ChatMessage.assistant(text)
+        return await self.engine.chat(
+            self.context,
+            message,
         )
 
-    def clear(self):
-        self.conversation.clear()
+    async def stream(
+        self,
+        message: ChatMessage | ChatRequest,
+    ) -> AsyncIterator[StreamEvent]:
 
+        async for event in self.engine.stream(
+            self.context,
+            message,
+        ):
+            yield event
+
+    def clear(self):
+        self.context.conversation.clear()
