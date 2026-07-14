@@ -64,6 +64,8 @@ class ExecutionContext(BaseModel):
 
     assistant_text: str = ""
 
+    thinking_text: str = ""
+
     stream_timeout: float | None = None
 
     usage: Usage | None = None
@@ -76,3 +78,6 @@ class ExecutionContext(BaseModel):
     tool_inputs: dict[str, Any] = Field(default_factory=dict)
 
     tool_results: dict[str, Any] = Field(default_factory=dict)
+
+    # Optional executor used by ToolLoopStage to run model-requested tools.
+    tool_executor: Any | None = None

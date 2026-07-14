@@ -6,6 +6,7 @@ from .litellm_mapper import LiteLLMMapper
 from .litellm_exception_mapper import LiteLLMExceptionMapper
 
 from ai_runtime.conversation import ChatRequest
+from ai_runtime.conversation import ChatResponse
 
 from collections.abc import AsyncIterator
 from ai_runtime.streaming.event import StreamEvent
@@ -61,7 +62,11 @@ class LiteLLMProvider(BaseProvider):
 
         try:
 
-            payload = LiteLLMMapper.to_request(self.config, request)
+            payload = LiteLLMMapper.to_request(
+                self.config,
+                request,
+                self.info.capabilities,
+            )
 
             response = await acompletion(
                 **payload,
@@ -82,7 +87,11 @@ class LiteLLMProvider(BaseProvider):
 
         self.validate_request(request)
 
-        payload = LiteLLMMapper.to_request(self.config, request)
+        payload = LiteLLMMapper.to_request(
+            self.config,
+            request,
+            self.info.capabilities,
+        )
 
         payload["stream"] = True
 

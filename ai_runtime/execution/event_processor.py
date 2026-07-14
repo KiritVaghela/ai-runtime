@@ -2,8 +2,12 @@
 from ai_runtime.conversation import ChatMessage
 from ai_runtime.streaming import (
     CompletedEvent,
+    PermissionEvent,
     StreamEvent,
     TextDeltaEvent,
+    ThinkingEvent,
+    ToolCallEvent,
+    ToolResultEvent,
     UsageEvent,
 )
 
@@ -37,6 +41,23 @@ class EventProcessor:
             self.context.assistant_text += (
                 event.delta
             )
+
+        elif isinstance(event, ThinkingEvent):
+            self.context.thinking_text += (
+                event.delta
+            )
+
+        elif isinstance(event, ToolCallEvent):
+            for call in event.calls:
+                self.context.tool_inputs[call.get("id")] = call
+
+        elif isinstance(event, ToolResultEvent):
+            self.context.tool_results[event.call_id] = {
+                "name": event.name,
+                "output": event.output,
+                "success": event.success,
+                "error": event.error,
+            }
 
         elif isinstance(event, UsageEvent):
             self.context.usage = event.usage

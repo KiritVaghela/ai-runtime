@@ -6,6 +6,8 @@ from ai_runtime.streaming import (
     CompletedEvent,
     StreamEvent,
     TextDeltaEvent,
+    ThinkingEvent,
+    ToolCallEvent,
     UsageEvent,
 )
 
@@ -42,13 +44,48 @@ class LiteLLMStreamParser:
         if delta is not None:
 
             text = getattr(delta, "content", None)
-
             if text:
                 events.append(
                     TextDeltaEvent(
                         delta=text,
                     )
                 )
+
+            # Reasoning / thinking delta (OpenAI o-series, Anthropic, etc.)
+            reasoning = getattr(delta, "reasoning_content", None)
+            if reasoning is None:
+                reasoning = getattr(delta, "thinking", None)
+            if reasoning:
+                events.append(
+                    ThinkingEvent(
+                        delta=reasoning,
+                    )
+                )
+
+            # Tool call deltas
+            tool_calls = getattr(delta, "tool_calls", None)
+            if tool_calls:
+                calls = []
+                for tc in tool_calls:
+                    calls.append(
+                        {
+                            "id": getattr(tc, "id", None),
+                            "name": getattr(
+                                getattr(tc, "function", None),
+                                "name",
+                                None,
+                            ),
+                            "arguments": getattr(
+                                getattr(tc, "function", None),
+                                "arguments",
+                                None,
+                            ),
+                        }
+                    )
+                if calls:
+                    events.append(
+                        ToolCallEvent(calls=calls)
+                    )
 
         # Finish reason
         finish_reason = getattr(choice, "finish_reason", None)

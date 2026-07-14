@@ -7,6 +7,7 @@ from ai_runtime.conversation import (
     Usage,
 )
 from .config import ProviderConfig
+from .capabilities import ProviderCapabilities
 
 class LiteLLMMapper:
     """
@@ -17,8 +18,11 @@ class LiteLLMMapper:
     def to_request(
         config: ProviderConfig,
         request: ChatRequest,
+        capabilities: ProviderCapabilities | None = None,
     ) -> dict[str, Any]:
-        return {
+        capabilities = capabilities or ProviderCapabilities()
+
+        payload: dict[str, Any] = {
             "model": config.litellm_model,
             "messages": [
                 LiteLLMMapper.to_message(m)
@@ -28,12 +32,36 @@ class LiteLLMMapper:
             "max_tokens": request.max_tokens,
             "stream": request.stream,
         }
+
+        # Forward capability-gated request fields.
+        if capabilities.tools and request.tools:
+            payload["tools"] = request.tools
+            if request.tool_choice is not None:
+                payload["tool_choice"] = request.tool_choice
+
+        if capabilities.structured_output and request.response_format:
+            payload["response_format"] = request.response_format
+
+        # Provider-specific hints from request metadata.
+        if request.metadata:
+            payload["metadata"] = request.metadata
+
+        return payload
     
 
     @staticmethod
     def to_message(
         message: ChatMessage,
     ) -> dict[str, Any]:
+        # Multimodal-aware: if content is already a structured list
+        # (e.g. text + image_url blocks), pass it through untouched so
+        # vision-capable providers receive content arrays.
+        if isinstance(message.content, (list, dict)):
+            return {
+                "role": message.role.value,
+                "content": message.content,
+            }
+
         return {
             "role": message.role.value,
             "content": message.content,

@@ -5,6 +5,10 @@ from .usage import UsageEvent
 from .completed import CompletedEvent
 from .error import ErrorEvent
 from .finish_reason import FinishReason
+from .tool_call import ToolCallEvent
+from .tool_result import ToolResultEvent
+from .thinking import ThinkingEvent
+from .permission import PermissionEvent
 
 __all__ = [
     "StreamEvent",
@@ -13,5 +17,9 @@ __all__ = [
     "UsageEvent",
     "CompletedEvent",
     "ErrorEvent",
-    "FinishReason"
+    "FinishReason",
+    "ToolCallEvent",
+    "ToolResultEvent",
+    "ThinkingEvent",
+    "PermissionEvent",
 ]

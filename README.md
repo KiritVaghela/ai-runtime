@@ -11,6 +11,9 @@ applications and agent workflows.
 -   Conversation management and session-based execution
 -   Streaming responses with event processing
 -   Streaming timeout/cancellation boundary handling
+-   Automatic tool-calling loop (model requests tools → runtime executes → re-invokes)
+-   Capability-gated request mapping (tools, structured output, vision, metadata)
+-   Rich streaming events: text, usage, tool call, tool result, thinking, permission
 -   Execution engine and pipeline stages
 -   Provider metadata, capabilities, and request mapping
 -   Fully tested runtime and provider integration coverage
@@ -118,7 +121,31 @@ runtime = AgentRuntime.from_provider(
                     └── ExecutionPipeline
                           ├── RequestBuilderStage
                           ├── LLMStage
-                          └── EventProcessor
+                          └── ToolLoopStage
+                                └── EventProcessor
+
+## Tools
+
+Register tools with a `ToolRegistry`, wrap it in a `ToolExecutor`, and attach
+it to the session context. When the model requests a tool, the runtime
+executes it and feeds the result back automatically.
+
+```python
+from ai_runtime.tools import ToolRegistry, ToolExecutor, FunctionTool
+from ai_runtime.conversation import ChatMessage
+
+registry = ToolRegistry()
+registry.register(
+    FunctionTool("get_weather", lambda ctx, inp: f"Weather in {inp['city']}: sunny")
+)
+
+session.context.tool_executor = ToolExecutor(registry)
+
+response = await session.chat(
+    ChatMessage.user("What is the weather in Paris?")
+)
+print(response.message.content)
+```
 
 ## Documentation
 

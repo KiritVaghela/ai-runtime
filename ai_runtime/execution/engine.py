@@ -12,6 +12,7 @@ from ai_runtime.execution.pipeline import (
     ExecutionPipeline,
     RequestBuilderStage,
     LLMStage,
+    ToolLoopStage,
 )
 from .mode import ExecutionMode
 from .event_processor import EventProcessor
@@ -29,6 +30,7 @@ class ExecutionEngine:
             ExecutionPipeline()
             .add(RequestBuilderStage())
             .add(LLMStage())
+            .add(ToolLoopStage())
         )
 
     async def chat(

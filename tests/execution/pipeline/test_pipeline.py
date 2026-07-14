@@ -103,4 +103,4 @@ def test_default_pipeline():
 
     assert len(
         engine.pipeline.stages
-    ) == 2
+    ) == 3
