@@ -21,15 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tests/web/test_web_app.py`: integration tests (health, project/session/chat,
   plan mode, permissions, background tasks) using a fake provider.
 
-### Fixed
-- **Web chat 500**: `web/managers._build_agent` passed a `ProviderConfig` (a
-  pydantic model) as the agent's `provider` instead of a real provider
-  instance. Now uses `ProviderRegistry.create(config)` to build a
-  `LiteLLMProvider` (with `.chat`/`.stream`), matching `AgentRuntime`.
-- Added `logging.basicConfig` (INFO) and a global `Exception` handler that
-  returns `{"error": "<Type>: <message>"}` with full tracebacks logged, plus
-  per-request logging in `/api/chat` and the WebSocket stream handler.
-
 ### Added (Integration-surface gaps vs Claude Code / Codex / Cursor / Copilot)
 - **Built-in tools**: `ReadFileTool`, `WriteFileTool`, `EditFileTool`,
   `GlobTool`, `GrepTool`, `BashTool` in `tools/builtin/`; `register_builtin_tools()`

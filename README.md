@@ -73,6 +73,31 @@ Claude Code / Codex / Cursor / Copilot, the framework now ships:
 -   **BYO provider** — `ProviderConfig.from_env()` reads `COPILOT_PROVIDER_*`
     vars to point at Ollama / vLLM / any OpenAI-compatible endpoint.
 
+### Web application (`web/`)
+
+A ready-to-run web UI + REST/WebSocket API that exercises the full framework:
+
+```bash
+export AI_RUNTIME_API_KEY=sk-...      # or AI_RUNTIME_PROVIDER/AI_RUNTIME_BASE_URL
+./venv/bin/python web/run.py          # serves http://127.0.0.1:8787
+```
+
+Features exposed in the UI:
+- **Streaming chat** (WebSocket streams `StreamEvent`s: text, tool calls, tool
+  results, thinking, usage, completion)
+- **Plan mode** (`/api/chat` with `mode: plan` returns a reviewable `Plan`)
+- **Projects** — `Project` scoping with auto-loaded instruction files + sandboxed
+  built-in tools (Read/Write/Edit/Glob/Grep/Bash)
+- **Checkpoints / undo** — snapshot + restore files before agent edits
+- **Permissions** — `PermissionPolicy` allow/deny/ask rules per tool + params
+- **Sub-agents** — configure `SubAgentSpec`s; supervisor fans them out
+- **Background tasks** — submit/resume/cancel via `BackgroundTaskRegistry`
+- **Slash commands** — `/compact`, `/context`, `/clear`
+- **MCP** — connect a stdio MCP server and register its tools
+- **Reasoning controls** — `reasoning_effort` / `thinking_enabled` per request
+
+See `web/README.md` for the full API reference.
+
 ## Installation
 
 ### From PyPI

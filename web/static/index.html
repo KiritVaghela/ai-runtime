@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ai_runtime</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
+  />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div class="sidebar-head">
+        <div class="brand">ai_runtime<span class="dot">●</span></div>
+        <button id="new-chat" title="New chat">+ New</button>
+      </div>
+      <div class="sidebar-section">
+      </div>
+      <nav class="sidebar-nav">
+        <button class="nav-btn active" data-panel="chat">Chat</button>
+        <button class="nav-btn" data-panel="projects">Projects</button>
+        <button class="nav-btn" data-panel="tasks">Tasks</button>
+        <button class="nav-btn" data-panel="perms">Permissions</button>
+        <button class="nav-btn" data-panel="provider">Provider</button>
+      </nav>
+      <div class="sidebar-foot">
+        <button id="btn-undo" title="Restore last checkpoint">↩ Undo</button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main id="main">
+      <!-- Chat panel -->
+      <section id="panel-chat" class="panel active">
+        <div id="chat-area">
+          <div id="messages"></div>
+          <div id="empty-state" class="empty">
+            <div class="empty-logo">ai_runtime</div>
+            <p>How can I help you today?</p>
+            <div class="suggestions">
+              <button class="chip">Explain a codebase concept</button>
+              <button class="chip">Write a unit test</button>
+              <button class="chip">Refactor this function</button>
+              <button class="chip">/compact the context</button>
+            </div>
+          </div>
+          <div id="rate-limit-banner" class="rate-limit-banner hidden">
+            <div class="rl-text">
+              <strong>Rate limit reached</strong>
+              <span id="rl-detail"></span>
+            </div>
+            <div class="rl-actions">
+              <button id="rl-change-provider">Change provider</button>
+              <button id="rl-retry">Retry</button>
+            </div>
+          </div>
+          <div class="composer-wrap">
+            <div class="composer">
+              <textarea id="input" rows="1" placeholder="Message ai_runtime…  (Enter to send, Shift+Enter for newline)"></textarea>
+              <button id="send" aria-label="Send">
+                <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 11l18-8-8 18-2-7-8-3z"/></svg>
+              </button>
+            </div>
+            <div class="composer-hint">
+              <button id="mode-toggle" class="mode-toggle" data-mode="chat">Chat</button>
+              <span class="hint-text">Streaming · Markdown · Tools · <code>/compact</code> <code>/clear</code></span>
+            </div>
+          </div>
+        </div>
+        <aside id="session-rail">
+          <div class="rail-head">
+            <span>Chats</span>
+            <button id="new-chat-rail" title="New chat">+</button>
+          </div>
+          <ul id="session-list"></ul>
+        </aside>
+      </section>
+
+      <!-- Projects panel -->
+      <section id="panel-projects" class="panel">
+        <div class="panel-head"><h2>Projects</h2></div>
+        <form id="project-form" class="row">
+          <input id="proj-root" placeholder="/path/to/project" />
+          <input id="proj-name" placeholder="name (optional)" />
+          <button type="submit">Create</button>
+        </form>
+        <ul id="project-list" class="card-list"></ul>
+      </section>
+
+      <!-- Tasks panel -->
+      <section id="panel-tasks" class="panel">
+        <div class="panel-head"><h2>Background Tasks</h2></div>
+        <div class="row">
+          <input id="task-msg" placeholder="Background task prompt" />
+          <button id="submit-task">Run in background</button>
+          <button id="refresh-tasks">Refresh</button>
+        </div>
+        <ul id="task-list" class="card-list"></ul>
+      </section>
+
+      <!-- Permissions panel -->
+      <section id="panel-perms" class="panel">
+        <div class="panel-head"><h2>Permission Rules</h2></div>
+        <form id="perm-form" class="row">
+          <input id="perm-project" placeholder="project" />
+          <input id="perm-tool" placeholder="Tool (e.g. Bash)" />
+          <input id="perm-params" placeholder="params glob (*)" />
+          <select id="perm-decision">
+            <option value="allow">allow</option>
+            <option value="deny">deny</option>
+            <option value="ask">ask</option>
+          </select>
+          <button type="submit">Add rule</button>
+        </form>
+        <ul id="perm-list" class="card-list"></ul>
+      </section>
+
+      <!-- Provider panel -->
+      <section id="panel-provider" class="panel">
+        <div class="panel-head"><h2>Provider</h2></div>
+        <form id="provider-form" class="row col">
+          <label class="field">
+            <span>Provider</span>
+            <select id="prov-provider"></select>
+          </label>
+          <label class="field">
+            <span>Model</span>
+            <input id="prov-model" placeholder="gpt-4o" />
+          </label>
+          <label class="field">
+            <span>API key</span>
+            <input id="prov-key" type="password" placeholder="optional / env" />
+          </label>
+          <label class="field">
+            <span>Base URL</span>
+            <input id="prov-base" placeholder="optional (OpenAI-compatible)" />
+          </label>
+          <label class="field">
+            <span>Reasoning effort</span>
+            <input id="prov-reasoning" placeholder="optional (low/medium/high)" />
+          </label>
+          <button type="submit">Switch provider</button>
+        </form>
+        <div id="provider-msg" class="provider-msg"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Markdown + syntax highlight -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
