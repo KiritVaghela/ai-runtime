@@ -67,3 +67,10 @@ class ExecutionContext(BaseModel):
     usage: Usage | None = None
 
     finish_reason: FinishReason | None = None
+
+    # Tooling integration
+    # A place to record declared tool inputs (optional) and results
+    # `metadata['tool_calls']` can be used by pipeline stages to request tool execution.
+    tool_inputs: dict[str, Any] = Field(default_factory=dict)
+
+    tool_results: dict[str, Any] = Field(default_factory=dict)
