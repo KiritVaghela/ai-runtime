@@ -14,6 +14,23 @@
   --radius: 14px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
+
+/* ---------- Light theme ---------- */
+[data-theme="light"] {
+  --bg: #f4f5f7;
+  --sidebar: #ffffff;
+  --panel: #ffffff;
+  --fg: #1c1f26;
+  --muted: #6b7280;
+  --accent: #3b5bdb;
+  --accent-soft: #e0e7ff;
+  --border: #e2e5ea;
+  --user-bubble: #dbe4ff;
+  --assistant-bubble: #f0f2f5;
+  --tool-bubble: #fbf3e3;
+  --code-bg: #eceef2;
+}
+
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
@@ -39,6 +56,22 @@ body {
 .sidebar-head { display: flex; align-items: center; justify-content: space-between; }
 .brand { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.02em; }
 .brand .dot { color: var(--accent); font-size: 0.6rem; margin-left: 4px; }
+.theme-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.theme-toggle:hover { border-color: var(--accent); background: var(--accent-soft); }
 #new-chat {
   background: var(--accent-soft);
   color: var(--fg);
@@ -264,6 +297,53 @@ body {
   font-size: 0.8rem;
 }
 .tool-card.error .tool-head { color: #ff7a7a; }
+
+/* collapsible blocks (thinking / tool call / tool result) */
+.collapsible {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+.collapsible-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.5rem 0.7rem;
+}
+.collapsible-head:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.collapsible .chevron {
+  color: var(--muted);
+  font-size: 0.7rem;
+  transition: transform 0.15s ease;
+}
+.collapsible-title {
+  font-weight: 600;
+}
+.collapsible-body {
+  padding: 0 0.7rem 0.7rem;
+}
+.collapsible-body .tool-card {
+  margin-bottom: 0;
+}
+/* Thinking block uses the assistant bubble styling, no outer border. */
+.thinking-msg .collapsible {
+  background: transparent;
+  border: none;
+}
+.thinking-msg .collapsible-head {
+  padding-left: 0;
+}
 
 /* ---------- Markdown ---------- */
 .bubble p { margin: 0 0 0.7rem; }

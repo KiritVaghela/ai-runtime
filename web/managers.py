@@ -279,6 +279,7 @@ class Manager:
         base_url: str | None = None,
         reasoning_effort: str | None = None,
         thinking_enabled: bool = False,
+        mode: str = "chat",
     ) -> Session:
         project = self.projects.get(project_name)
         if project is None:
@@ -300,6 +301,7 @@ class Manager:
             base_url=base_url,
             reasoning_effort=reasoning_effort,
             thinking_enabled=thinking_enabled,
+            mode=mode if mode in ("chat", "plan") else "chat",
         )
         self.sessions[session.id] = session
         self._save_session(session)

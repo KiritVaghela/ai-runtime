@@ -60,6 +60,9 @@ class CreateSessionReq(BaseModel):
     project: str
     system_prompt: str | None = None
     name: str | None = None
+    mode: str = "chat"
+    reasoning_effort: str | None = None
+    thinking_enabled: bool = False
 
 
 class RenameSessionReq(BaseModel):
@@ -139,6 +142,34 @@ def _rate_limit_event(session, exc: Exception) -> dict:
     return {"type": "error", **_rate_limit_payload(session, exc)}
 
 
+def _record_event(turn: list[dict[str, Any]], ev_dict: dict[str, Any], buf: dict[str, str]) -> None:
+    """Coalesce streaming deltas into history records, preserving order.
+
+    Consecutive `text_delta` events are merged into one `text` record and
+    consecutive `thinking` events into one `thinking` record, so the
+    persisted history mirrors what the user saw (including interleaving
+    with tool calls).
+    """
+    t = ev_dict.get("type")
+    if t == "text_delta":
+        buf["text"] = buf.get("text", "") + ev_dict.get("delta", "")
+        if turn and turn[-1].get("type") == "text":
+            turn[-1]["content"] = buf["text"]
+        else:
+            turn.append({"type": "text", "content": buf["text"]})
+    elif t == "thinking":
+        buf["thinking"] = buf.get("thinking", "") + ev_dict.get("delta", "")
+        if turn and turn[-1].get("type") == "thinking":
+            turn[-1]["content"] = buf["thinking"]
+        else:
+            turn.append({"type": "thinking", "content": buf["thinking"]})
+    elif t in ("completed", "error"):
+        # Lifecycle markers — not persisted as content.
+        pass
+    else:
+        turn.append(ev_dict)
+
+
 # ---------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------
@@ -169,7 +200,14 @@ async def list_projects():
 # ---------------------------------------------------------------------------
 @app.post("/api/sessions")
 async def create_session(req: CreateSessionReq):
-    session = manager.create_session(req.project, req.system_prompt, req.name)
+    session = manager.create_session(
+        req.project,
+        req.system_prompt,
+        req.name,
+        mode=req.mode,
+        reasoning_effort=req.reasoning_effort,
+        thinking_enabled=req.thinking_enabled,
+    )
     return {"session_id": session.id, "project": session.project.name, "name": session.name}
 
 
@@ -287,12 +325,15 @@ async def chat(req: ChatReq):
         if req.mode == "plan":
             logger.info("Plan request on session %s", req.session_id)
             plan = await session.runner.plan(req.message)
+            session.history.append({"type": "user", "content": req.message})
+            session.history.append({"type": "plan", "content": str(plan)})
+            manager._save_session(session)
             return {"mode": "plan", "plan": str(plan)}
 
         logger.info("Chat request on session %s (mode=%s)", req.session_id, req.mode)
         response = await session.runner.run(req.message)
-        session.history.append({"role": "user", "content": req.message})
-        session.history.append({"role": "assistant", "content": response.message.content or ""})
+        session.history.append({"type": "user", "content": req.message})
+        session.history.append({"type": "text", "content": response.message.content or ""})
         manager._save_session(session)
         return {
             "content": response.message.content or "",
@@ -332,7 +373,7 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                 # types out like chat. Effort / thinking / streaming all apply.
                 # The plan is parsed during streaming (single LLM call); the final
                 # `plan` event swaps the streamed bubble for a clean plan block.
-                session.history.append({"role": "user", "content": message})
+                session.history.append({"type": "user", "content": message})
                 try:
                     async for event in session.runner.stream_plan(message):
                         logger.info("[plan][ws] event=%s payload=%s", getattr(event, "type", None), serialize_event(event))
@@ -347,11 +388,11 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                         len(session.runner.last_plan_text or ""),
                         not bool(session.runner.last_plan_text),
                     )
-                    session.history.append({"role": "assistant", "content": plan_text, "plan": True})
+                    session.history.append({"type": "plan", "content": plan_text})
                     manager._save_session(session)
                     await websocket.send_json({"type": "plan", "plan": plan_text})
                 except Exception as e:  # noqa: BLE001
-                    if session.history and session.history[-1].get("role") == "user":
+                    if session.history and session.history[-1].get("type") == "user":
                         session.history.pop()
                     manager._save_session(session)
                     if _is_rate_limit(e):
@@ -361,22 +402,27 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                         await websocket.send_json({"type": "error", "error": f"{type(e).__name__}: {e}"})
                 continue
 
-            # Stream events as they arrive.
-            session.history.append({"role": "user", "content": message})
-            assistant_text = ""
+            # Stream events as they arrive, recording each as a structured
+            # history entry (user, text, thinking, tool_call, tool_result, usage).
+            session.history.append({"type": "user", "content": message})
+            turn: list[dict[str, Any]] = []
+            buf: dict[str, str] = {}
             try:
                 async for event in session.runner.stream(message):
                     await websocket.send_text(serialize_event(event))
-                    if getattr(event, "type", None) is not None:
-                        etype = event.type.value if hasattr(event.type, "value") else str(event.type)
-                        if etype == "text_delta":
-                            assistant_text += getattr(event, "delta", "")
-                session.history.append({"role": "assistant", "content": assistant_text})
+                    if getattr(event, "type", None) is None:
+                        continue
+                    ev_dict = event.model_dump() if hasattr(event, "model_dump") else {"type": "unknown"}
+                    # Normalize enum types to their string values for storage.
+                    if "type" in ev_dict and hasattr(ev_dict["type"], "value"):
+                        ev_dict["type"] = ev_dict["type"].value
+                    _record_event(turn, ev_dict, buf)
+                session.history.extend(turn)
                 manager._save_session(session)
                 await websocket.send_json({"type": "done"})
             except Exception as e:  # noqa: BLE001
                 # Roll back the user message we optimistically appended.
-                if session.history and session.history[-1].get("role") == "user":
+                if session.history and session.history[-1].get("type") == "user":
                     session.history.pop()
                 manager._save_session(session)
                 if _is_rate_limit(e):

@@ -37,6 +37,8 @@ let assistantEl = null; // current streaming assistant bubble
 let assistantText = ""; // accumulated raw markdown
 let managerProvider = null; // current backend provider (from /api/provider)
 let managerModel = null;     // current backend model
+// Settings chosen before a session exists (applied when the session is created).
+let pendingSettings = { mode: "chat", reasoning_effort: null, thinking_enabled: false };
 
 function hideEmpty() {
   const e = $("#empty-state");
@@ -132,8 +134,16 @@ async function deleteSession(id) {
 }
 
 function currentMode() {
-  const meta = sessionMeta[currentSession];
-  return (meta && meta.mode) || "chat";
+  if (currentSession && sessionMeta[currentSession]) return sessionMeta[currentSession].mode || "chat";
+  return pendingSettings.mode || "chat";
+}
+function currentEffort() {
+  if (currentSession && sessionMeta[currentSession]) return sessionMeta[currentSession].reasoning_effort || null;
+  return pendingSettings.reasoning_effort || null;
+}
+function currentThinking() {
+  if (currentSession && sessionMeta[currentSession]) return !!sessionMeta[currentSession].thinking_enabled;
+  return !!pendingSettings.thinking_enabled;
 }
 
 function syncModeToggle() {
@@ -144,14 +154,6 @@ function syncModeToggle() {
   btn.textContent = mode === "plan" ? "Plan" : "Chat";
 }
 
-function currentEffort() {
-  const meta = sessionMeta[currentSession];
-  return (meta && meta.reasoning_effort) || null;
-}
-function currentThinking() {
-  const meta = sessionMeta[currentSession];
-  return !!(meta && meta.thinking_enabled);
-}
 
 function syncSettingsToggle() {
   // Effort segmented control.
@@ -165,7 +167,13 @@ function syncSettingsToggle() {
 }
 
 async function setSessionSettings(patch) {
-  if (!currentSession) return;
+  // No session yet — buffer the choice and reflect it in the UI immediately.
+  if (!currentSession) {
+    if (patch.reasoning_effort !== undefined) pendingSettings.reasoning_effort = patch.reasoning_effort;
+    if (patch.thinking_enabled !== undefined) pendingSettings.thinking_enabled = patch.thinking_enabled;
+    syncSettingsToggle();
+    return;
+  }
   try {
     const res = await api("POST", `/api/sessions/${currentSession}/settings`, patch);
     if (sessionMeta[currentSession]) {
@@ -179,7 +187,12 @@ async function setSessionSettings(patch) {
 }
 
 async function setMode(mode) {
-  if (!currentSession) return;
+  // No session yet — buffer the choice and reflect it in the UI immediately.
+  if (!currentSession) {
+    pendingSettings.mode = mode;
+    syncModeToggle();
+    return;
+  }
   if (sessionMeta[currentSession]) sessionMeta[currentSession].mode = mode;
   syncModeToggle();
   try {
@@ -196,15 +209,50 @@ async function loadHistory() {
     return;
   }
   $("#empty-state").classList.add("hidden");
-  msgs.forEach((m) => {
-    if (m.role === "user") {
-      addMsg("user", m.content);
-    } else if (m.plan) {
-      addPlan(m.content);
-    } else {
-      addMsg("assistant", m.content, true);
-    }
-  });
+  msgs.forEach((m) => renderHistoryEvent(normalizeHistoryEntry(m)));
+}
+
+// Map a persisted history entry (new `type`-based or legacy `role`-based)
+// into the canonical event shape used by the renderer.
+function normalizeHistoryEntry(m) {
+  if (m && m.type) return m;
+  if (!m) return { type: "text", content: "" };
+  if (m.role === "user") return { type: "user", content: m.content };
+  if (m.plan) return { type: "plan", content: m.content };
+  return { type: "text", content: m.content };
+}
+
+// Render a single history event with the appropriate UI for its type.
+function renderHistoryEvent(e) {
+  if (!e) return;
+  switch (e.type) {
+    case "user":
+      addMsg("user", e.content);
+      break;
+    case "text":
+      addMsg("assistant", e.content, true);
+      break;
+    case "plan":
+      addPlan(e.content);
+      break;
+    case "thinking":
+      $("#messages").appendChild(buildThinkingBlock(e.content || ""));
+      break;
+    case "tool_call":
+      (e.calls || []).forEach((c) => $("#messages").appendChild(buildToolCallCard(c)));
+      break;
+    case "tool_result":
+      $("#messages").appendChild(buildToolResultCard(e));
+      break;
+    case "usage":
+      addUsageMsg(e.usage || {});
+      break;
+    case "error":
+      addMsg("system", "Error: " + (e.error || ""));
+      break;
+    default:
+      if (e.content != null) addMsg("assistant", e.content, true);
+  }
 }
 
 async function newSession(project = "default") {
@@ -212,12 +260,28 @@ async function newSession(project = "default") {
   if (typeof project !== "string") project = "default";
   // The backend auto-creates the project from the configured default root
   // when it doesn't already exist, so no prompt is needed.
-  const s = await api("POST", "/api/sessions", { project });
+  // Carry over any settings the user picked before the session existed.
+  const s = await api("POST", "/api/sessions", {
+    project,
+    mode: pendingSettings.mode,
+    reasoning_effort: pendingSettings.reasoning_effort,
+    thinking_enabled: pendingSettings.thinking_enabled,
+  });
   currentSession = s.session_id;
+  // Seed the session meta from the buffered settings so the UI stays in sync.
+  sessionMeta[currentSession] = {
+    name: "New chat",
+    project,
+    mode: pendingSettings.mode,
+    reasoning_effort: pendingSettings.reasoning_effort,
+    thinking_enabled: pendingSettings.thinking_enabled,
+  };
   await loadSessions(s.session_id);
   connectWs();
   $("#messages").innerHTML = "";
   $("#empty-state").classList.remove("hidden");
+  syncModeToggle();
+  syncSettingsToggle();
 }
 
 // Auto-name a session from its first user message.
@@ -281,12 +345,11 @@ function handleEvent(evt) {
     appendThinking(evt.delta || "");
   } else if (type === "tool_call") {
     const calls = evt.calls || [];
-    calls.forEach((c) => addToolCard(c.name, c.arguments, false));
+    calls.forEach((c) => $("#messages").appendChild(buildToolCallCard(c)));
   } else if (type === "tool_result") {
-    addToolCard(evt.name, evt.output || evt.error, !evt.success, evt.error);
+    $("#messages").appendChild(buildToolResultCard(evt));
   } else if (type === "usage") {
-    const u = evt.usage || {};
-    addMsg("system", `tokens — prompt: ${u.prompt_tokens ?? "?"} · completion: ${u.completion_tokens ?? "?"} · total: ${u.total_tokens ?? "?"}`);
+    addUsageMsg(evt.usage || {});
   } else if (type === "completed") {
     finalizeAssistant();
   } else if (type === "error") {
@@ -395,30 +458,12 @@ function appendThinking(text) {
   hideEmpty();
   let box = $("#thinking-box");
   if (!box) {
-    box = document.createElement("div");
+    box = buildThinkingBlock("");
     box.id = "thinking-box";
-    box.className = "msg assistant";
-    const label = document.createElement("div");
-    label.className = "role-label";
-    label.textContent = "Thinking";
-    const bubbleWrap = document.createElement("div");
-    bubbleWrap.className = "bubble-wrap";
-    const bubble = document.createElement("div");
-    bubble.className = "bubble thinking-block";
-    bubbleWrap.appendChild(bubble);
-    // Copy button for the thinking block.
-    const copy = document.createElement("button");
-    copy.className = "copy-btn";
-    copy.title = "Copy thinking";
-    copy.innerHTML = "⧉";
-    copy.addEventListener("click", () => copyMessage(bubble, copy));
-    bubbleWrap.appendChild(copy);
-    box.appendChild(label);
-    box.appendChild(bubbleWrap);
     $("#messages").appendChild(box);
   }
   // Render thinking exactly like an assistant message (markdown + bubble).
-  const bubble = box.querySelector(".bubble");
+  const bubble = box.querySelector(".thinking-block");
   bubble.dataset.raw = (bubble.dataset.raw || "") + text;
   bubble.innerHTML = renderMarkdown(bubble.dataset.raw);
   scrollDown();
@@ -451,25 +496,144 @@ function addPlan(plan) {
   scrollDown();
 }
 
-function addToolCard(name, payload, isError, errMsg) {
-  hideEmpty();
+function addUsageMsg(u) {
+  addMsg(
+    "system",
+    `tokens — prompt: ${u.prompt_tokens ?? "?"} · completion: ${u.completion_tokens ?? "?"} · total: ${u.total_tokens ?? "?"}`
+  );
+}
+
+// ---- Collapsible container (thinking / tool call / tool result) ----
+function makeCollapsible(titleNode, bodyNode, collapsed = true) {
+  const col = document.createElement("div");
+  col.className = "collapsible";
+  col.dataset.collapsed = collapsed ? "true" : "false";
+  const head = document.createElement("button");
+  head.className = "collapsible-head";
+  head.type = "button";
+  const chevron = document.createElement("span");
+  chevron.className = "chevron";
+  chevron.textContent = collapsed ? "▸" : "▾";
+  head.appendChild(chevron);
+  head.appendChild(titleNode);
+  const body = document.createElement("div");
+  body.className = "collapsible-body";
+  body.appendChild(bodyNode);
+  if (collapsed) body.style.display = "none";
+  head.addEventListener("click", () => {
+    const isCollapsed = col.dataset.collapsed === "true";
+    col.dataset.collapsed = isCollapsed ? "false" : "true";
+    chevron.textContent = isCollapsed ? "▾" : "▸";
+    body.style.display = isCollapsed ? "" : "none";
+  });
+  col.appendChild(head);
+  col.appendChild(body);
+  return col;
+}
+
+// ---- Thinking block (collapsible, markdown-rendered) ----
+function buildThinkingBlock(content) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg assistant thinking-msg";
+  const label = document.createElement("div");
+  label.className = "role-label";
+  label.textContent = "Thinking";
+  const bubbleWrap = document.createElement("div");
+  bubbleWrap.className = "bubble-wrap";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble thinking-block";
+  bubble.innerHTML = renderMarkdown(content || "");
+  const title = document.createElement("span");
+  title.className = "collapsible-title";
+  title.textContent = "Reasoning";
+  const col = makeCollapsible(title, bubble, true);
+  const copy = document.createElement("button");
+  copy.className = "copy-btn";
+  copy.title = "Copy thinking";
+  copy.innerHTML = "⧉";
+  copy.addEventListener("click", () => copyMessage(bubble, copy));
+  bubbleWrap.appendChild(col);
+  bubbleWrap.appendChild(copy);
+  wrap.appendChild(label);
+  wrap.appendChild(bubbleWrap);
+  return wrap;
+}
+
+// ---- Tool call card (collapsible) ----
+function buildToolCallCard(call) {
+  const name = call && call.name ? call.name : "tool";
+  const args = call && call.arguments != null ? call.arguments : {};
+  const argsStr = typeof args === "string" ? args : JSON.stringify(args, null, 2);
   const wrap = document.createElement("div");
   wrap.className = "msg tool";
+  const label = document.createElement("div");
+  label.className = "role-label";
+  label.textContent = "Tool";
+  const bubbleWrap = document.createElement("div");
+  bubbleWrap.className = "bubble-wrap";
   const card = document.createElement("div");
-  card.className = "tool-card" + (isError ? " error" : "");
+  card.className = "tool-card";
   const head = document.createElement("div");
   head.className = "tool-head";
-  head.textContent = (isError ? "✗ " : "🔧 ") + name;
+  head.textContent = "🔧 " + name;
   const body = document.createElement("div");
   body.className = "tool-body";
-  let content = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
-  if (isError && errMsg) content += "\n" + errMsg;
-  body.textContent = content;
+  body.textContent = argsStr;
   card.appendChild(head);
   card.appendChild(body);
-  wrap.appendChild(card);
-  $("#messages").appendChild(wrap);
-  scrollDown();
+  const title = document.createElement("span");
+  title.className = "collapsible-title";
+  title.textContent = `🔧 ${name}()`;
+  const col = makeCollapsible(title, card, true);
+  const copy = document.createElement("button");
+  copy.className = "copy-btn";
+  copy.title = "Copy arguments";
+  copy.innerHTML = "⧉";
+  copy.addEventListener("click", () => copyMessage(body, copy));
+  bubbleWrap.appendChild(col);
+  bubbleWrap.appendChild(copy);
+  wrap.appendChild(label);
+  wrap.appendChild(bubbleWrap);
+  return wrap;
+}
+
+// ---- Tool result card (collapsible) ----
+function buildToolResultCard(evt) {
+  const name = evt && evt.name ? evt.name : "tool";
+  const success = !(evt && evt.success === false);
+  const output = evt ? (evt.output != null ? evt.output : evt.error) : "";
+  const outStr = typeof output === "string" ? output : JSON.stringify(output, null, 2);
+  const wrap = document.createElement("div");
+  wrap.className = "msg tool";
+  const label = document.createElement("div");
+  label.className = "role-label";
+  label.textContent = "Tool result";
+  const bubbleWrap = document.createElement("div");
+  bubbleWrap.className = "bubble-wrap";
+  const card = document.createElement("div");
+  card.className = "tool-card" + (success ? "" : " error");
+  const head = document.createElement("div");
+  head.className = "tool-head";
+  head.textContent = (success ? "✓ " : "✗ ") + name;
+  const body = document.createElement("div");
+  body.className = "tool-body";
+  body.textContent = outStr + (evt && evt.error && success ? "\n" + evt.error : "");
+  card.appendChild(head);
+  card.appendChild(body);
+  const title = document.createElement("span");
+  title.className = "collapsible-title";
+  title.textContent = `${success ? "✓" : "✗"} ${name} result`;
+  const col = makeCollapsible(title, card, true);
+  const copy = document.createElement("button");
+  copy.className = "copy-btn";
+  copy.title = "Copy result";
+  copy.innerHTML = "⧉";
+  copy.addEventListener("click", () => copyMessage(body, copy));
+  bubbleWrap.appendChild(col);
+  bubbleWrap.appendChild(copy);
+  wrap.appendChild(label);
+  wrap.appendChild(bubbleWrap);
+  return wrap;
 }
 
 function scrollDown() {
@@ -617,12 +781,16 @@ $("#input").addEventListener("keydown", (e) => {
 $("#input").addEventListener("input", autoResize);
 $("#new-chat-rail").addEventListener("click", () => {
   // Start a fresh (unsaved) conversation — no backend session is created
-  // until the first message is actually sent.
+  // until the first message is actually sent. Reset any buffered settings
+  // so the new chat starts from defaults (the user can re-pick them).
   currentSession = null;
+  pendingSettings = { mode: "chat", reasoning_effort: null, thinking_enabled: false };
   if (ws) ws.close();
   $("#messages").innerHTML = "";
   $("#empty-state").classList.remove("hidden");
   highlightActiveSession();
+  syncModeToggle();
+  syncSettingsToggle();
 });
 $("#mode-toggle").addEventListener("click", () => {
   const next = currentMode() === "plan" ? "chat" : "plan";
@@ -718,8 +886,30 @@ $("#provider-form").addEventListener("submit", async (e) => {
   }
 });
 
+// ---- Theme (light / dark) ----
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const btn = $("#theme-toggle");
+  if (btn) btn.textContent = theme === "light" ? "☀️" : "🌙";
+  try {
+    localStorage.setItem("ai-runtime-theme", theme);
+  } catch {}
+}
+function initTheme() {
+  let theme = "dark";
+  try {
+    theme = localStorage.getItem("ai-runtime-theme") || "dark";
+  } catch {}
+  applyTheme(theme);
+}
+$("#theme-toggle").addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  applyTheme(next);
+});
+
 // ---- Init ----
 (async () => {
+  initTheme();
   await loadSessions();
   await loadProjects();
   await loadTasks();
