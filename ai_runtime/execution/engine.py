@@ -45,6 +45,10 @@ class ExecutionEngine:
 
         context = await self.pipeline.execute(context)
 
+        # Emit equivalent stream events so subscribers are uniform across
+        # chat and stream modes.
+        EventProcessor(context).process_response(context.response)
+
         context.conversation.add(
             context.response.message
         )

@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-14
+
+### Added (P2 — contract breadth)
+- **Expanded provider contract**: `LLMProvider` now declares optional
+  capability-gated `embed()`, `generate_image()`, and `transcribe()` methods
+  (default: `NotImplementedError`).
+- `LiteLLMProvider.embed()` implemented via `litellm.aembedding`, gated on
+  `capabilities.embeddings` and raising `NotImplementedError` otherwise.
+- `ProviderCapabilities` gained a `transcription` flag.
+- **Retries**: `LiteLLMProvider` forwards `ProviderConfig.max_retries` to
+  LiteLLM as `num_retries` for both chat and stream paths.
+- **Uniform events**: `chat()` mode now emits the same `StreamEvent` types
+  (`TextDeltaEvent`, `UsageEvent`, `CompletedEvent`) as `stream()` via
+  `EventProcessor.process_response`, so `EventBus` subscribers are consistent.
+
+### Changed (P3 — cleanup)
+- Removed dead/duplicate modules: `execution/executor.py` (`LLMExecutor`),
+  `execution/result.py` (`ExecutionResult`), `execution/pipeline/conversation_stage.py`
+  (`ConversationStage`), `execution/pipeline/tool_stage.py` (`ToolStage`,
+  superseded by `ToolLoopStage`), `providers/litellm_exceptions.py` (orphaned
+  duplicate of `providers/exceptions.py`), `adapters/litellm/exceptions.py`
+  (unused `AdapterError` stub), and `adapters/litellm/request_adapter.py`
+  (duplicate of `LiteLLMMapper`).
+- Removed the corresponding tests (`test_conversation_stage.py`,
+  `test_request_adapter.py`).
+- `ConversationStage` no longer exported from the pipeline package.
+
 ## [0.4.0] - 2026-07-14
 
 ### Added

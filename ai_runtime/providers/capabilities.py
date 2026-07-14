@@ -18,3 +18,5 @@ class ProviderCapabilities(BaseModel):
     embeddings: bool = False
 
     image_generation: bool = False
+
+    transcription: bool = False

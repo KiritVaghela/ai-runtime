@@ -13,6 +13,9 @@ applications and agent workflows.
 -   Streaming timeout/cancellation boundary handling
 -   Automatic tool-calling loop (model requests tools → runtime executes → re-invokes)
 -   Capability-gated request mapping (tools, structured output, vision, metadata)
+-   Expanded provider contract: chat, stream, embeddings, image, transcription
+-   Retries via `ProviderConfig.max_retries` (forwarded to the backend)
+-   Uniform events: `chat()` and `stream()` both emit `StreamEvent`s
 -   Rich streaming events: text, usage, tool call, tool result, thinking, permission
 -   Execution engine and pipeline stages
 -   Provider metadata, capabilities, and request mapping

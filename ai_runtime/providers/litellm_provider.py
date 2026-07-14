@@ -1,4 +1,4 @@
-from litellm import acompletion
+from litellm import acompletion, aembedding
 
 from .provider import BaseProvider
 
@@ -18,11 +18,17 @@ from .capabilities import ProviderCapabilities
 from .litellm_stream_parser import LiteLLMStreamParser
 from ai_runtime.providers.enums import ProviderType
 
+# Default capability hints per provider type. These are *negotiated* at
+# runtime: a provider may advertise broader support, but the runtime only
+# forwards capability-gated request fields when the flag is True here.
 _PROVIDER_CAPABILITIES = {
     ProviderType.OPENAI: ProviderCapabilities(
         tools=True,
         vision=True,
         structured_output=True,
+        embeddings=True,
+        image_generation=True,
+        transcription=True,
     ),
     ProviderType.GROQ: ProviderCapabilities(
         tools=True,
@@ -53,6 +59,12 @@ class LiteLLMProvider(BaseProvider):
             )
         )
 
+    def _retry_kwargs(self) -> dict:
+        # LiteLLM honors `num_retries` for automatic backoff.
+        if self.config.max_retries and self.config.max_retries > 0:
+            return {"num_retries": self.config.max_retries}
+        return {}
+
     async def chat(
         self,
         request: ChatRequest,
@@ -73,6 +85,7 @@ class LiteLLMProvider(BaseProvider):
                 api_key=self.config.api_key,
                 base_url=self.config.base_url,
                 timeout=self.config.timeout,
+                **self._retry_kwargs(),
             )
 
             return LiteLLMMapper.from_response(response)
@@ -104,6 +117,7 @@ class LiteLLMProvider(BaseProvider):
                 api_key=self.config.api_key,
                 base_url=self.config.base_url,
                 timeout=self.config.timeout,
+                **self._retry_kwargs(),
             )
 
             async for chunk in response:
@@ -115,8 +129,29 @@ class LiteLLMProvider(BaseProvider):
         except Exception as ex:
 
             raise LiteLLMExceptionMapper.map(ex) from ex
-    
-    
+
+    async def embed(
+        self,
+        texts: list[str],
+        model: str | None = None,
+    ) -> list[list[float]]:
+        if not self.info.capabilities.embeddings:
+            raise NotImplementedError(
+                f"Provider {self.config.provider.value} does not support embeddings."
+            )
+
+        try:
+            embed_model = model or self.config.litellm_model
+            response = await aembedding(
+                model=embed_model,
+                input=texts,
+                api_key=self.config.api_key,
+                base_url=self.config.base_url,
+                **self._retry_kwargs(),
+            )
+            return [item["embedding"] for item in response["data"]]
+        except Exception as ex:
+            raise LiteLLMExceptionMapper.map(ex)
 
     async def list_models(self) -> list[str]:
         return []

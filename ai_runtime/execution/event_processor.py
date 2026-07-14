@@ -66,3 +66,23 @@ class EventProcessor:
             self.context.finish_reason = (
                 event.finish_reason
             )
+
+    def process_response(
+        self,
+        response,
+    ) -> None:
+        """Emit equivalent stream events for a non-streaming chat response.
+
+        This keeps the `EventBus` uniform: subscribers receive the same event
+        types whether the call was streamed or not.
+        """
+        content = response.message.content
+        if content:
+            self.process(TextDeltaEvent(delta=str(content)))
+
+        if response.usage is not None:
+            self.process(UsageEvent(usage=response.usage))
+
+        self.process(
+            CompletedEvent(finish_reason=response.finish_reason)
+        )
