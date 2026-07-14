@@ -1,8 +1,9 @@
+import asyncio
 from collections.abc import AsyncIterator
 
 from ai_runtime.conversation import ChatMessage
 from ai_runtime.conversation import ChatRequest, ChatResponse
-from ai_runtime.streaming import StreamEvent, TextDeltaEvent
+from ai_runtime.streaming import StreamEvent, ErrorEvent
 
 from .pipeline import ExecutionPipeline
 from .context import ExecutionContext
@@ -68,22 +69,56 @@ class ExecutionEngine:
 
             context.temperature = message.temperature
             context.max_tokens = message.max_tokens
+            context.stream_timeout = message.timeout
     
 
         context = await self.pipeline.execute(
             context
         )
 
+        if context.stream is None:
+            raise RuntimeError("Provider stream not initialized.")
+
         processor = EventProcessor(context)
-        
-        async for event in context.stream:
-            
-            processor.process(event)
 
-            yield event
+        provider_timeout = None
+        if hasattr(context.provider, "config"):
+            provider_timeout = getattr(context.provider.config, "timeout", None)
 
-        context.conversation.add(
-            ChatMessage.assistant(
-                context.assistant_text
-            )
+        timeout = (
+            context.stream_timeout
+            if context.stream_timeout is not None
+            else provider_timeout
         )
+
+        while True:
+            try:
+                if timeout is not None:
+                    event = await asyncio.wait_for(
+                        context.stream.__anext__(),
+                        timeout=timeout,
+                    )
+                else:
+                    event = await context.stream.__anext__()
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                error_event = ErrorEvent(message="stream timeout")
+                processor.process(error_event)
+                yield error_event
+                break
+            except Exception as exc:
+                error_event = ErrorEvent(message=str(exc))
+                processor.process(error_event)
+                yield error_event
+                break
+            else:
+                processor.process(event)
+                yield event
+
+        if context.finish_reason is not None:
+            context.conversation.add(
+                ChatMessage.assistant(
+                    context.assistant_text
+                )
+            )

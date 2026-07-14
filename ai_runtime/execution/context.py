@@ -64,6 +64,8 @@ class ExecutionContext(BaseModel):
 
     assistant_text: str = ""
 
+    stream_timeout: float | None = None
+
     usage: Usage | None = None
 
     finish_reason: FinishReason | None = None

@@ -11,7 +11,7 @@ __all__ = [
     "BaseProvider",
     "ProviderConfig",
     "ProviderRegistry",
-    "SDKInfo"
+    "SDKInfo",
     "ProviderInfo",
-    "ProviderCapabilities"
+    "ProviderCapabilities",
 ]

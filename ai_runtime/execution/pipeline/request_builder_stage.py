@@ -22,6 +22,7 @@ class RequestBuilderStage(ExecutionStage):
             temperature=context.temperature,
             max_tokens=context.max_tokens,
             stream=context.mode == ExecutionMode.STREAM,
+            timeout=context.stream_timeout,
         )
 
         return context

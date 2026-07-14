@@ -9,3 +9,16 @@ class ChatResponse(BaseModel):
     usage: Usage | None = None
 
     finish_reason: str | None = None
+
+    @classmethod
+    def assistant(
+        cls,
+        text: str,
+        usage: Usage | None = None,
+        finish_reason: str | None = None,
+    ) -> "ChatResponse":
+        return cls(
+            message=ChatMessage.assistant(text),
+            usage=usage,
+            finish_reason=finish_reason,
+        )

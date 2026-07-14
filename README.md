@@ -5,27 +5,27 @@ applications and agent workflows.
 
 ## Features
 
--   Provider abstraction (LiteLLM-based)
--   OpenAI, Groq and other LiteLLM providers
--   Conversation management
--   Chat sessions
--   Streaming responses
--   Execution engine & execution pipeline
--   Event bus for execution events
--   Provider registry and metadata
--   Fully tested (57+ tests)
+-   Provider abstraction with a unified LLM contract
+-   Built-in default provider registry and plugin discovery
+-   Custom provider registration with test doubles
+-   Conversation management and session-based execution
+-   Streaming responses with event processing
+-   Streaming timeout/cancellation boundary handling
+-   Execution engine and pipeline stages
+-   Provider metadata, capabilities, and request mapping
+-   Fully tested runtime and provider integration coverage
 
 ## Installation
 
 ### From PyPI
 
-``` bash
+```bash
 pip install ai-runtime
 ```
 
 ### From source
 
-``` bash
+```bash
 git clone https://github.com/KiritVaghela/ai-runtime.git
 cd ai-runtime
 pip install -e .
@@ -33,12 +33,12 @@ pip install -e .
 
 ## Quick Start
 
-``` python
+```python
 import os
 
 from ai_runtime import AgentRuntime
 from ai_runtime.conversation import ChatMessage
-from ai_runtime.models.enums import ProviderType
+from ai_runtime.providers.enums import ProviderType
 
 runtime = AgentRuntime.from_provider(
     provider=ProviderType.GROQ,
@@ -57,7 +57,8 @@ print(response.message.content)
 
 ## Streaming
 
-``` python
+```python
+from ai_runtime.conversation import ChatMessage
 from ai_runtime.streaming import TextDeltaEvent
 
 async for event in session.stream(
@@ -65,6 +66,48 @@ async for event in session.stream(
 ):
     if isinstance(event, TextDeltaEvent):
         print(event.delta, end="")
+```
+
+## Streaming with timeout
+
+The runtime supports stream timeout propagation through `ChatRequest.timeout`.
+If a provider stream stalls, an `ErrorEvent` is emitted and the stream stops.
+
+```python
+from ai_runtime.conversation import ChatMessage, ChatRequest
+from ai_runtime.streaming import ErrorEvent, TextDeltaEvent
+
+request = ChatRequest(
+    messages=[ChatMessage.user("Generate a poem.")],
+    timeout=10.0,
+)
+
+async for event in session.stream(request):
+    if isinstance(event, TextDeltaEvent):
+        print(event.delta, end="")
+    elif isinstance(event, ErrorEvent):
+        print("\nStream timed out or failed:", event.message)
+```
+
+## Provider registry
+
+The runtime uses a provider registry so you can register custom providers or
+replace the default provider implementation during tests.
+
+```python
+from ai_runtime import AgentRuntime
+from ai_runtime.providers import ProviderRegistry
+from ai_runtime.providers.enums import ProviderType
+
+registry = ProviderRegistry()
+registry.register(ProviderType.OPENAI, MyCustomProvider)
+
+runtime = AgentRuntime.from_provider(
+    provider=ProviderType.OPENAI,
+    model="gpt-4.1",
+    api_key=os.getenv("OPENAI_API_KEY"),
+    registry=registry,
+)
 ```
 
 ## Architecture
@@ -79,16 +122,16 @@ async for event in session.stream(
 
 ## Testing
 
-``` bash
+```bash
 pytest
 ```
 
 Current status:
 
--   57 passing tests
--   Provider integrations
--   Streaming support
--   Session-based execution
+-   Provider registry with custom provider registration
+-   Streaming response support with timeouts and completion events
+-   Session-based execution and conversation accumulation
+-   Provider integration coverage with test doubles
 
 ## Roadmap
 
@@ -112,25 +155,25 @@ Current status:
 1.  Update version in `pyproject.toml`.
 2.  Build:
 
-``` bash
+```bash
 python -m build
 ```
 
 3.  Check:
 
-``` bash
+```bash
 twine check dist/*
 ```
 
 4.  Upload to TestPyPI:
 
-``` bash
+```bash
 twine upload --repository testpypi dist/*
 ```
 
 5.  Upload to PyPI:
 
-``` bash
+```bash
 twine upload dist/*
 ```
 

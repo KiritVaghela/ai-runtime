@@ -43,18 +43,9 @@ class LiteLLMMapper:
     def from_response(
         response: Any,
     ) -> ChatResponse:
+        from ai_runtime.adapters.litellm.response_adapter import LiteLLMResponseAdapter
 
-        choice = response.choices[0]
-
-        return ChatResponse(
-            message=ChatMessage.assistant(
-                choice.message.content
-            ),
-            finish_reason=choice.finish_reason,
-            usage=LiteLLMMapper.to_usage(
-                response.usage
-            ),
-        )
+        return LiteLLMResponseAdapter.from_response(response)
 
     @staticmethod
     def to_usage(

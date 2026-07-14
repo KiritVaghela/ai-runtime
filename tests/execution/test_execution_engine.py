@@ -1,15 +1,15 @@
+import asyncio
+
 import pytest
 
 from ai_runtime.execution import ExecutionContext, ExecutionEngine
  
-from ai_runtime.conversation import ChatMessage, ChatResponse, Usage
+from ai_runtime.conversation import ChatMessage, ChatRequest, ChatResponse, Usage
 from ai_runtime.streaming import (
     CompletedEvent,
+    ErrorEvent,
     TextDeltaEvent,
 )
-
-
-from ai_runtime.streaming.text import TextDeltaEvent
 
 class FakeProvider:
 
@@ -92,3 +92,35 @@ async def test_engine_stream():
 
     assert context.conversation.messages[1].role == "assistant"
     assert context.conversation.messages[1].content == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_engine_stream_timeout():
+
+    class SlowStreamProvider:
+
+        async def stream(self, request):
+            yield TextDeltaEvent(delta="Hel")
+            await asyncio.sleep(0.2)
+            yield TextDeltaEvent(delta="lo")
+
+    context = ExecutionContext(
+        provider=SlowStreamProvider(),
+    )
+
+    engine = ExecutionEngine()
+
+    received_events = []
+
+    async for event in engine.stream(
+        context,
+        ChatRequest(
+            messages=[ChatMessage.user("Hi")],
+            timeout=0.05,
+        ),
+    ):
+        received_events.append(event)
+
+    assert any(isinstance(event, ErrorEvent) for event in received_events)
+    assert len(received_events) == 2
+    assert context.assistant_text == "Hel"
