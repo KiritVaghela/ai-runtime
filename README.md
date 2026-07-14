@@ -120,6 +120,15 @@ runtime = AgentRuntime.from_provider(
                           ├── LLMStage
                           └── EventProcessor
 
+## Documentation
+
+-   [Migration Guide](docs/migration_guide.md)
+-   [Adapter Tutorial](docs/adapter_tutorial.md)
+-   [Examples](docs/examples.md)
+-   [Release Checklist](docs/release_checklist.md)
+
+See [CHANGELOG.md](CHANGELOG.md) for version history.
+
 ## Testing
 
 ```bash
