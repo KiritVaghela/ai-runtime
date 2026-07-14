@@ -105,6 +105,7 @@ body {
   display: flex;
   flex-direction: column;
 }
+#session-rail.hidden { display: none; }
 .rail-head {
   display: flex;
   align-items: center;
@@ -220,20 +221,29 @@ body {
 
 /* thinking / plan blocks */
 .thinking-block {
-  border-left: 2px solid var(--accent);
-  padding-left: 0.8rem;
-  color: var(--muted);
-  font-style: italic;
-  font-size: 0.88rem;
+  /* Render thinking just like a normal assistant message bubble. */
+  background: var(--assistant-bubble);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+  color: var(--fg);
+  font-style: normal;
+  font-size: 0.92rem;
+  padding: 0.9rem 1.1rem;
+  border-radius: var(--radius);
+  white-space: normal;
+  word-break: break-word;
 }
 .plan-block {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1rem 1.2rem;
-  white-space: pre-wrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.85rem;
+  /* Match the streamed assistant bubble: let marked.js handle spacing
+     instead of preserving raw newlines (which doubled blank lines). */
+  white-space: normal;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 0.92rem;
 }
 
 /* tool call/result cards */
@@ -285,6 +295,76 @@ body {
   margin: 0.5rem 0;
   padding-left: 0.9rem;
   color: var(--muted);
+}
+
+/* ---------- Copy button on assistant messages ---------- */
+/* The bubble-wrap is the positioning context so the copy button sits
+   inside the bubble's top-right corner (not the whole message row). */
+.bubble-wrap {
+  position: relative;
+}
+/* Keep the bubble's text clear of the always-visible copy button. */
+.msg.assistant .bubble,
+.bubble-wrap .plan-block,
+.bubble-wrap .thinking-block {
+  padding-right: 2.4rem;
+}
+.copy-btn {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.6rem;
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 1.8rem;
+  height: 1.8rem;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  /* Always visible in the top-right corner of the bubble. */
+  opacity: 1;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.copy-btn:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+  background: var(--assistant-bubble);
+}
+.copy-btn.copied {
+  color: #3fb950;
+  border-color: #3fb950;
+}
+
+/* ---------- Session list delete button ---------- */
+#session-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  justify-content: space-between;
+}
+#session-list li .session-name {
+  flex: 1;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-del {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+#session-list li:hover .session-del {
+  opacity: 1;
+}
+.session-del:hover {
+  color: #f85149;
 }
 
 /* ---------- Empty state ---------- */
@@ -387,6 +467,49 @@ body {
 .mode-toggle[data-mode="plan"] {
   background: var(--accent);
   border-color: var(--accent);
+  color: #fff;
+}
+
+/* ---------- Effort + thinking toggles ---------- */
+.settings-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.settings-label {
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin-right: 0.1rem;
+}
+.effort-btn {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.22rem 0.55rem;
+  cursor: pointer;
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+.effort-btn[data-active="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.thinking-toggle {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.22rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+.thinking-toggle[data-on="true"] {
+  background: #b8860b;
+  border-color: #b8860b;
   color: #fff;
 }
 

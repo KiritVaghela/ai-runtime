@@ -7,6 +7,7 @@ from ai_runtime.execution.context import ExecutionContext
 from ai_runtime.execution.mode import ExecutionMode
 from ai_runtime.execution.pipeline.planner_stage import PlannerStage
 from ai_runtime.execution.plan import Plan
+from ai_runtime.streaming import TextDeltaEvent, CompletedEvent
 
 
 class _FakeProvider:
@@ -17,7 +18,8 @@ class _FakeProvider:
         return ChatResponse(message=assistant(self._content))
 
     async def stream(self, request):
-        raise NotImplementedError
+        yield TextDeltaEvent(delta=self._content)
+        yield CompletedEvent()
 
 
 def assistant(content: str) -> ChatMessage:
@@ -25,12 +27,14 @@ def assistant(content: str) -> ChatMessage:
 
 
 @pytest.mark.asyncio
-async def test_planner_parses_json_plan():
+async def test_planner_parses_markdown_plan():
     content = (
-        'Here is the plan:\n{"goal": "Refactor module", '
-        '"steps": [{"description": "Read file", "action": "tool:read", '
-        '"target": "a.py"}, {"description": "Edit", "action": "tool:edit"}], '
-        '"risks": ["Breaking import"]}'
+        "# Plan\nRefactor module\n\n"
+        "## Steps\n"
+        "- Read file (tool:read, target: a.py)\n"
+        "- Edit the module (tool:edit)\n\n"
+        "## Risks\n"
+        "- Breaking import"
     )
     provider = _FakeProvider(content)
     ctx = ExecutionContext(
@@ -44,7 +48,7 @@ async def test_planner_parses_json_plan():
     assert isinstance(result.plan, Plan)
     assert result.plan.goal == "Refactor module"
     assert len(result.plan.steps) == 2
-    assert result.plan.steps[0].target == "a.py"
+    assert "Read file" in result.plan.steps[0].description
     assert result.plan.risks == ["Breaking import"]
 
 

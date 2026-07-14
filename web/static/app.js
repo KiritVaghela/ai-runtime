@@ -62,18 +62,39 @@ async function loadSessions(selectId = null) {
   list.innerHTML = "";
   sessionMeta = {};
   sessions.forEach((s) => {
-    sessionMeta[s.session_id] = { name: s.name, project: s.project, mode: s.mode || "chat" };
+    sessionMeta[s.session_id] = {
+      name: s.name,
+      project: s.project,
+      mode: s.mode || "chat",
+      reasoning_effort: s.reasoning_effort || null,
+      thinking_enabled: !!s.thinking_enabled,
+    };
     const li = document.createElement("li");
     li.dataset.id = s.session_id;
-    li.textContent = s.name;
     li.title = s.name;
     if (s.session_id === currentSession) li.classList.add("active");
-    li.addEventListener("click", () => selectSession(s.session_id));
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "session-name";
+    nameSpan.textContent = s.name;
+    nameSpan.addEventListener("click", () => selectSession(s.session_id));
+    li.appendChild(nameSpan);
+    const del = document.createElement("button");
+    del.className = "session-del";
+    del.title = "Delete chat";
+    del.textContent = "🗑";
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteSession(s.session_id);
+    });
+    li.appendChild(del);
     list.appendChild(li);
   });
   if (selectId) currentSession = selectId;
   if (!currentSession && sessions.length) currentSession = sessions[0].session_id;
   highlightActiveSession();
+  syncSettingsToggle();
+  // Show the left session rail only when at least one session exists.
+  $("#session-rail").classList.toggle("hidden", sessions.length === 0);
 }
 
 function highlightActiveSession() {
@@ -87,8 +108,27 @@ async function selectSession(id) {
   currentSession = id;
   highlightActiveSession();
   syncModeToggle();
+  syncSettingsToggle();
   connectWs();
   await loadHistory();
+}
+
+async function deleteSession(id) {
+  if (!confirm("Delete this chat? This cannot be undone.")) return;
+  try {
+    await api("DELETE", `/api/sessions/${id}`);
+  } catch (e) {
+    addMsg("system", "Error deleting chat: " + e.message);
+    return;
+  }
+  delete sessionMeta[id];
+  if (currentSession === id) {
+    currentSession = null;
+    if (ws) ws.close();
+    $("#messages").innerHTML = "";
+    $("#empty-state").classList.remove("hidden");
+  }
+  await loadSessions();
 }
 
 function currentMode() {
@@ -102,6 +142,40 @@ function syncModeToggle() {
   const mode = currentMode();
   btn.dataset.mode = mode;
   btn.textContent = mode === "plan" ? "Plan" : "Chat";
+}
+
+function currentEffort() {
+  const meta = sessionMeta[currentSession];
+  return (meta && meta.reasoning_effort) || null;
+}
+function currentThinking() {
+  const meta = sessionMeta[currentSession];
+  return !!(meta && meta.thinking_enabled);
+}
+
+function syncSettingsToggle() {
+  // Effort segmented control.
+  const effort = currentEffort();
+  document.querySelectorAll(".effort-btn").forEach((b) => {
+    b.dataset.active = String(b.dataset.effort === effort);
+  });
+  // Thinking toggle.
+  const t = $("#thinking-toggle");
+  if (t) t.dataset.on = String(currentThinking());
+}
+
+async function setSessionSettings(patch) {
+  if (!currentSession) return;
+  try {
+    const res = await api("POST", `/api/sessions/${currentSession}/settings`, patch);
+    if (sessionMeta[currentSession]) {
+      if (res.reasoning_effort !== undefined)
+        sessionMeta[currentSession].reasoning_effort = res.reasoning_effort;
+      if (res.thinking_enabled !== undefined)
+        sessionMeta[currentSession].thinking_enabled = res.thinking_enabled;
+    }
+    syncSettingsToggle();
+  } catch {}
 }
 
 async function setMode(mode) {
@@ -171,6 +245,8 @@ function connectWs() {
     } catch {
       return;
     }
+    // DEBUG: log every event received over the socket.
+    console.log("[ws] recv", data.type, data);
     if (data.type === "error") {
       if (data.kind === "rate_limit") {
         showRateLimit(data);
@@ -178,6 +254,16 @@ function connectWs() {
         addMsg("system", "Error: " + data.error);
       }
     } else if (data.type === "plan") {
+      // The plan was streamed as text first; replace that transient bubble
+      // (the last assistant message that isn't the thinking box) with the
+      // structured plan block.
+      const msgs = $("#messages");
+      let last = msgs.lastElementChild;
+      while (last && (!last.classList.contains("assistant") || last.id === "thinking-box")) {
+        last = last.previousElementSibling;
+      }
+      if (last) last.remove();
+      finalizeAssistant();
       addPlan(data.plan);
     } else if (data.type === "done") {
       finalizeAssistant();
@@ -240,15 +326,49 @@ function addMsg(role, html, asMarkdown = false) {
   const label = document.createElement("div");
   label.className = "role-label";
   label.textContent = role === "user" ? "You" : role === "assistant" ? "ai_runtime" : role === "tool" ? "Tool" : "System";
+  const bubbleWrap = document.createElement("div");
+  bubbleWrap.className = "bubble-wrap";
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   if (asMarkdown) bubble.innerHTML = renderMarkdown(html);
   else bubble.textContent = html;
+  bubbleWrap.appendChild(bubble);
+  // Copy button (double-square icon) on assistant messages — sits inside the bubble.
+  if (role === "assistant") {
+    const copy = document.createElement("button");
+    copy.className = "copy-btn";
+    copy.title = "Copy message";
+    copy.innerHTML = "⧉"; // double-square copy glyph
+    copy.addEventListener("click", () => copyMessage(bubble, copy));
+    bubbleWrap.appendChild(copy);
+  }
   wrap.appendChild(label);
-  wrap.appendChild(bubble);
+  wrap.appendChild(bubbleWrap);
   $("#messages").appendChild(wrap);
   scrollDown();
   return wrap;
+}
+
+async function copyMessage(bubble, btn) {
+  const text = bubble.innerText || bubble.textContent || "";
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Fallback for non-secure contexts.
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+  const prev = btn.innerHTML;
+  btn.innerHTML = "✓";
+  btn.classList.add("copied");
+  setTimeout(() => {
+    btn.innerHTML = prev;
+    btn.classList.remove("copied");
+  }, 1200);
 }
 
 function appendAssistant(text) {
@@ -281,13 +401,26 @@ function appendThinking(text) {
     const label = document.createElement("div");
     label.className = "role-label";
     label.textContent = "Thinking";
+    const bubbleWrap = document.createElement("div");
+    bubbleWrap.className = "bubble-wrap";
     const bubble = document.createElement("div");
     bubble.className = "bubble thinking-block";
+    bubbleWrap.appendChild(bubble);
+    // Copy button for the thinking block.
+    const copy = document.createElement("button");
+    copy.className = "copy-btn";
+    copy.title = "Copy thinking";
+    copy.innerHTML = "⧉";
+    copy.addEventListener("click", () => copyMessage(bubble, copy));
+    bubbleWrap.appendChild(copy);
     box.appendChild(label);
-    box.appendChild(bubble);
+    box.appendChild(bubbleWrap);
     $("#messages").appendChild(box);
   }
-  box.querySelector(".bubble").textContent += text;
+  // Render thinking exactly like an assistant message (markdown + bubble).
+  const bubble = box.querySelector(".bubble");
+  bubble.dataset.raw = (bubble.dataset.raw || "") + text;
+  bubble.innerHTML = renderMarkdown(bubble.dataset.raw);
   scrollDown();
 }
 
@@ -298,11 +431,22 @@ function addPlan(plan) {
   const label = document.createElement("div");
   label.className = "role-label";
   label.textContent = "Plan";
+  const bubbleWrap = document.createElement("div");
+  bubbleWrap.className = "bubble-wrap";
   const block = document.createElement("div");
   block.className = "plan-block";
-  block.textContent = plan;
+  // Render as markdown so it matches the streamed bubble exactly.
+  block.innerHTML = renderMarkdown(plan);
+  bubbleWrap.appendChild(block);
+  // Copy button for the plan block.
+  const copy = document.createElement("button");
+  copy.className = "copy-btn";
+  copy.title = "Copy plan";
+  copy.innerHTML = "⧉";
+  copy.addEventListener("click", () => copyMessage(block, copy));
+  bubbleWrap.appendChild(copy);
   wrap.appendChild(label);
-  wrap.appendChild(block);
+  wrap.appendChild(bubbleWrap);
   $("#messages").appendChild(wrap);
   scrollDown();
 }
@@ -337,7 +481,7 @@ function scrollDown() {
 async function send() {
   const text = $("#input").value.trim();
   if (!text) return;
-  // Auto-create a session if none exists yet.
+  // Create the session lazily — only once we actually have a message to send.
   if (!currentSession) {
     await newSession();
   }
@@ -358,21 +502,8 @@ async function send() {
   await maybeNameSession(text);
   clearRateLimit();
 
-  if (mode === "plan") {
-    try {
-      const res = await api("POST", "/api/chat", { session_id: currentSession, message: text, mode });
-      addPlan(res.plan);
-    } catch (e) {
-      if (e.status === 429) {
-        showRateLimit({ provider: managerProvider, model: managerModel });
-      } else {
-        addMsg("system", "Error: " + e.message);
-      }
-    }
-    return;
-  }
-
-  // Streaming via WS.
+  // Both chat and plan stream over the WebSocket so effort / thinking /
+  // streaming controls behave identically. Plan mode ends with a `plan` event.
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ message: text, mode }));
   } else if (ws && ws.readyState === WebSocket.CONNECTING) {
@@ -484,11 +615,28 @@ $("#input").addEventListener("keydown", (e) => {
   }
 });
 $("#input").addEventListener("input", autoResize);
-$("#new-chat").addEventListener("click", () => newSession());
-$("#new-chat-rail").addEventListener("click", () => newSession());
+$("#new-chat-rail").addEventListener("click", () => {
+  // Start a fresh (unsaved) conversation — no backend session is created
+  // until the first message is actually sent.
+  currentSession = null;
+  if (ws) ws.close();
+  $("#messages").innerHTML = "";
+  $("#empty-state").classList.remove("hidden");
+  highlightActiveSession();
+});
 $("#mode-toggle").addEventListener("click", () => {
   const next = currentMode() === "plan" ? "chat" : "plan";
   setMode(next);
+});
+document.querySelectorAll(".effort-btn").forEach((b) =>
+  b.addEventListener("click", () => {
+    const effort = b.dataset.effort;
+    const next = currentEffort() === effort ? null : effort;
+    setSessionSettings({ reasoning_effort: next });
+  })
+);
+$("#thinking-toggle").addEventListener("click", () => {
+  setSessionSettings({ thinking_enabled: !currentThinking() });
 });
 document.querySelectorAll(".chip").forEach((c) =>
   c.addEventListener("click", () => {

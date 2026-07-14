@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from ai_runtime.conversation import ChatMessage, ChatRequest
 from ai_runtime.execution.plan import Plan
 from ai_runtime.streaming import StreamEvent
+from collections.abc import AsyncIterator
 
 if TYPE_CHECKING:
     from ai_runtime.execution import ExecutionEngine
@@ -31,6 +32,8 @@ class AgentRunner:
             engine = ExecutionEngine()
         self.agent = agent
         self.engine = engine
+        self.last_plan: Plan | None = None
+        self.last_plan_text: str = ""
 
     async def run(
         self,
@@ -132,3 +135,43 @@ class AgentRunner:
             user_msg = ChatMessage.user(message.messages[-1].content)
 
         return await self.engine.plan(context, user_msg)
+
+    async def stream_plan(
+        self,
+        message: str | ChatMessage | ChatRequest,
+        system_prompt: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream a plan (live thinking + placeholder, then the parsed plan).
+
+        The planner parses the model's JSON into a `Plan` during streaming, so
+        no second LLM call is needed — the parsed plan is available on
+        `self.last_plan` afterwards.
+        """
+        await self.agent.ensure_memory_loaded()
+
+        context = ExecutionContext(
+            provider=self.agent.provider,
+            tool_executor=self.agent.tool_executor,
+        )
+        context.agent = self.agent
+        context._engine = self.engine
+
+        prompt = system_prompt or self.agent.effective_system_prompt()
+        if prompt:
+            context.conversation.add(ChatMessage.system(prompt))
+        for msg in self.agent.memory.conversation.messages:
+            context.conversation.add(msg)
+
+        if isinstance(message, str):
+            user_msg = ChatMessage.user(message)
+        elif isinstance(message, ChatMessage):
+            user_msg = message
+        else:
+            user_msg = ChatMessage.user(message.messages[-1].content)
+
+        async for event in self.engine.stream_plan(context, user_msg):
+            yield event
+        # Capture the parsed plan and the raw streamed text produced during
+        # streaming, so the transport can echo back exactly what was shown.
+        self.last_plan = context.plan
+        self.last_plan_text = context.assistant_text

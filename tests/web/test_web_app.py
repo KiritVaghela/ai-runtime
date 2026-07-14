@@ -32,7 +32,7 @@ class _FakeProvider:
             StreamEvent,
         )
 
-        yield TextDeltaEvent(text=self._text)
+        yield TextDeltaEvent(delta=self._text)
         yield CompletedEvent()
 
 
@@ -51,14 +51,14 @@ def client(monkeypatch, tmp_path):
     import web.managers as managers
 
     monkeypatch.setattr(
-        managers.Manager, "_build_agent", lambda self, project, sp=None: __import__(
+        managers.Manager, "_build_agent", lambda self, *args, **kwargs: __import__(
             "ai_runtime.agents", fromlist=["Agent"]
         ).Agent(
             name="fake",
             provider=_FakeProvider(),
-            system_prompt=project.as_system_prompt(sp),
-            tool_registry=project.tool_registry,
-            memory_store=project.memory_store,
+            system_prompt=args[0].as_system_prompt(args[1] if len(args) > 1 else None),
+            tool_registry=args[0].tool_registry,
+            memory_store=args[0].memory_store,
         ),
     )
     from web.app import app
@@ -108,3 +108,17 @@ async def test_permissions_and_tasks(client):
     t = client.post("/api/tasks", json={"session_id": sid, "message": "bg"})
     assert t.status_code == 200
     assert "task_id" in t.json()
+
+
+@pytest.mark.asyncio
+async def test_delete_session(client):
+    client.post("/api/projects", json={"root": "/tmp", "name": "demo4"})
+    sid = client.post("/api/sessions", json={"project": "demo4"}).json()["session_id"]
+    # Give it a message so it persists (and the file is written).
+    client.post("/api/chat", json={"session_id": sid, "message": "hi"})
+    d = client.delete(f"/api/sessions/{sid}")
+    assert d.status_code == 200
+    assert d.json()["deleted"] is True
+    # Deleting again should 404.
+    d2 = client.delete(f"/api/sessions/{sid}")
+    assert d2.status_code == 404

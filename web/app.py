@@ -175,14 +175,18 @@ async def create_session(req: CreateSessionReq):
 
 @app.get("/api/sessions")
 async def list_sessions():
+    # Only show sessions that actually have a message (persisted ones).
     return [
         {
             "session_id": s.id,
             "project": s.project.name,
             "name": s.name,
             "mode": s.mode,
+            "reasoning_effort": s.reasoning_effort,
+            "thinking_enabled": s.thinking_enabled,
         }
         for s in manager.sessions.values()
+        if s.history
     ]
 
 
@@ -194,12 +198,39 @@ async def rename_session(session_id: str, req: RenameSessionReq):
     return {"session_id": session.id, "name": session.name}
 
 
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str):
+    deleted = manager.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(404, "session not found")
+    return {"session_id": session_id, "deleted": True}
+
+
 @app.post("/api/sessions/{session_id}/mode")
 async def set_mode(session_id: str, req: SetModeReq):
     session = manager.set_session_mode(session_id, req.mode)
     if session is None:
         raise HTTPException(404, "session not found")
     return {"session_id": session.id, "mode": session.mode}
+
+
+class SessionSettingsReq(BaseModel):
+    reasoning_effort: str | None = None
+    thinking_enabled: bool | None = None
+
+
+@app.post("/api/sessions/{session_id}/settings")
+async def set_session_settings(session_id: str, req: SessionSettingsReq):
+    session = manager.set_session_settings(
+        session_id, req.reasoning_effort, req.thinking_enabled
+    )
+    if session is None:
+        raise HTTPException(404, "session not found")
+    return {
+        "session_id": session.id,
+        "reasoning_effort": session.reasoning_effort,
+        "thinking_enabled": session.thinking_enabled,
+    }
 
 
 @app.get("/api/sessions/{session_id}/history")
@@ -262,6 +293,7 @@ async def chat(req: ChatReq):
         response = await session.runner.run(req.message)
         session.history.append({"role": "user", "content": req.message})
         session.history.append({"role": "assistant", "content": response.message.content or ""})
+        manager._save_session(session)
         return {
             "content": response.message.content or "",
             "finish_reason": response.finish_reason,
@@ -296,10 +328,37 @@ async def ws_chat(websocket: WebSocket, session_id: str):
             mode = data.get("mode", "chat")
 
             if mode == "plan":
-                plan = await session.runner.plan(message)
+                # Stream the plan live (markdown text + thinking deltas) so it
+                # types out like chat. Effort / thinking / streaming all apply.
+                # The plan is parsed during streaming (single LLM call); the final
+                # `plan` event swaps the streamed bubble for a clean plan block.
                 session.history.append({"role": "user", "content": message})
-                session.history.append({"role": "assistant", "content": str(plan), "plan": True})
-                await websocket.send_json({"type": "plan", "plan": str(plan)})
+                try:
+                    async for event in session.runner.stream_plan(message):
+                        logger.info("[plan][ws] event=%s payload=%s", getattr(event, "type", None), serialize_event(event))
+                        await websocket.send_text(serialize_event(event))
+                    # The planner parsed the plan during streaming. Echo back
+                    # the EXACT text that was streamed (not the reformatted
+                    # Plan.__str__) so the final block matches what the user saw.
+                    plan_obj = session.runner.last_plan
+                    plan_text = session.runner.last_plan_text or (str(plan_obj) if plan_obj else "")
+                    logger.info(
+                        "[plan][ws] last_plan_text_len=%s fallback_used=%s",
+                        len(session.runner.last_plan_text or ""),
+                        not bool(session.runner.last_plan_text),
+                    )
+                    session.history.append({"role": "assistant", "content": plan_text, "plan": True})
+                    manager._save_session(session)
+                    await websocket.send_json({"type": "plan", "plan": plan_text})
+                except Exception as e:  # noqa: BLE001
+                    if session.history and session.history[-1].get("role") == "user":
+                        session.history.pop()
+                    manager._save_session(session)
+                    if _is_rate_limit(e):
+                        await websocket.send_json(_rate_limit_event(session, e))
+                    else:
+                        logger.exception("WebSocket plan failed for session %s", session_id)
+                        await websocket.send_json({"type": "error", "error": f"{type(e).__name__}: {e}"})
                 continue
 
             # Stream events as they arrive.
@@ -313,11 +372,13 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                         if etype == "text_delta":
                             assistant_text += getattr(event, "delta", "")
                 session.history.append({"role": "assistant", "content": assistant_text})
+                manager._save_session(session)
                 await websocket.send_json({"type": "done"})
             except Exception as e:  # noqa: BLE001
                 # Roll back the user message we optimistically appended.
                 if session.history and session.history[-1].get("role") == "user":
                     session.history.pop()
+                manager._save_session(session)
                 if _is_rate_limit(e):
                     await websocket.send_json(_rate_limit_event(session, e))
                 else:

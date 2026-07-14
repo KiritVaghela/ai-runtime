@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 
 from ai_runtime.conversation import ChatMessage
 from ai_runtime.conversation import ChatRequest, ChatResponse
-from ai_runtime.streaming import StreamEvent, ErrorEvent
+from ai_runtime.streaming import StreamEvent, ErrorEvent, CompletedEvent
 
 from .pipeline import ExecutionPipeline
 from .context import ExecutionContext
@@ -86,6 +86,39 @@ class ExecutionEngine:
         )
         context = await pipeline.execute(context)
         return context.plan
+
+    async def stream_plan(
+        self,
+        context: ExecutionContext,
+        message: ChatMessage | ChatRequest,
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream a plan: live text/thinking deltas, then a final plan event.
+
+        Mirrors `stream()` but uses the read-only planner pipeline so no tools
+        run. Effort / thinking / streaming controls all apply because the
+        planner streams through the provider like chat does.
+        """
+        context.mode = ExecutionMode.PLAN
+
+        if isinstance(message, ChatMessage):
+            context.conversation.add(message)
+        elif isinstance(message, ChatRequest):
+            context.conversation.extend(message.messages)
+            context.temperature = message.temperature
+            context.max_tokens = message.max_tokens
+            context.stream_timeout = message.timeout
+
+        pipeline = (
+            ExecutionPipeline()
+            .add(RequestBuilderStage())
+            .add(PlannerStage())
+        )
+        context = await pipeline.execute(context)
+
+        # Replay the planner's streamed events to the caller.
+        for event in getattr(context, "_plan_events", []):
+            yield event
+        yield CompletedEvent()
 
     async def stream(
         self,

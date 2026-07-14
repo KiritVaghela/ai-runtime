@@ -13,6 +13,7 @@ from ai_runtime.server.protocol import (
     serialize_event,
     parse_request,
 )
+from ai_runtime.streaming import TextDeltaEvent, CompletedEvent
 
 
 class _FakeProvider:
@@ -23,7 +24,8 @@ class _FakeProvider:
         return ChatResponse(message=ChatMessage(role="assistant", content=self._text))
 
     async def stream(self, request):
-        raise NotImplementedError
+        yield TextDeltaEvent(delta=self._text)
+        yield CompletedEvent()
 
 
 @pytest.mark.asyncio

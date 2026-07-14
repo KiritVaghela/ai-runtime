@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <link
     rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css"
+    href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/github-dark.min.css"
   />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
@@ -16,8 +16,7 @@
     <!-- Sidebar -->
     <aside id="sidebar">
       <div class="sidebar-head">
-        <div class="brand">ai_runtime<span class="dot">●</span></div>
-        <button id="new-chat" title="New chat">+ New</button>
+        <div class="brand">Agent Runtime<span class="dot">●</span></div>
       </div>
       <div class="sidebar-section">
       </div>
@@ -40,7 +39,7 @@
         <div id="chat-area">
           <div id="messages"></div>
           <div id="empty-state" class="empty">
-            <div class="empty-logo">ai_runtime</div>
+            <div class="empty-logo">Agent Runtime</div>
             <p>How can I help you today?</p>
             <div class="suggestions">
               <button class="chip">Explain a codebase concept</button>
@@ -68,11 +67,21 @@
             </div>
             <div class="composer-hint">
               <button id="mode-toggle" class="mode-toggle" data-mode="chat">Chat</button>
+              <div class="settings-group" id="effort-group" role="group" aria-label="Reasoning effort">
+                <span class="settings-label">Effort</span>
+                <button class="effort-btn" data-effort="low">Low</button>
+                <button class="effort-btn" data-effort="medium">Med</button>
+                <button class="effort-btn" data-effort="high">High</button>
+              </div>
+              <button id="thinking-toggle" class="thinking-toggle" data-on="false" title="Enable thinking/reasoning">
+                💡 Thinking
+              </button>
               <span class="hint-text">Streaming · Markdown · Tools · <code>/compact</code> <code>/clear</code></span>
             </div>
           </div>
         </div>
-        <aside id="session-rail">
+        <!-- Session history (right rail, shown when sessions exist) -->
+        <aside id="session-rail" class="hidden">
           <div class="rail-head">
             <span>Chats</span>
             <button id="new-chat-rail" title="New chat">+</button>
@@ -154,7 +163,7 @@
   <!-- Markdown + syntax highlight -->
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>
