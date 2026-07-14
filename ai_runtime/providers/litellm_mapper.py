@@ -46,6 +46,16 @@ class LiteLLMMapper:
         if request.metadata:
             payload["metadata"] = request.metadata
 
+        # Reasoning / thinking controls (capability-gated).
+        if capabilities.reasoning:
+            if config.reasoning_effort:
+                payload["reasoning_effort"] = config.reasoning_effort
+            if config.thinking_enabled:
+                payload["thinking"] = {
+                    "type": "enabled",
+                    "budget_tokens": config.thinking_budget_tokens,
+                }
+
         return payload
     
 

@@ -36,16 +36,23 @@ class DropOldestStrategy(TruncationStrategy):
         self.estimator = estimator
 
     def truncate(self, conversation: Conversation) -> Conversation:
-        kept = [m for m in conversation.messages if m.role.value == "system"]
+        system = [m for m in conversation.messages if m.role.value == "system"]
         rest = [m for m in conversation.messages if m.role.value != "system"]
 
-        # Always keep the most recent user/assistant pairs.
-        kept.extend(rest)
-
+        # Keep system messages plus as many of the most recent turns as fit.
+        kept = list(system)
         total = sum(self.estimator(str(m.content)) for m in kept)
-        while total > self.max_tokens and len(rest) > 0:
-            removed = rest.pop(0)
-            total -= self.estimator(str(removed.content))
+
+        # Add recent messages from the end until the budget is exceeded.
+        for m in reversed(rest):
+            cost = self.estimator(str(m.content))
+            if total + cost > self.max_tokens and len(kept) > len(system):
+                break
+            kept.append(m)
+            total += cost
+
+        # Restore chronological order.
+        kept = system + kept[len(system):][::-1]
 
         result = Conversation()
         result.extend(kept)

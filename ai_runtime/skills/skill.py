@@ -20,3 +20,7 @@ class Skill:
     tools: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     run: Callable[..., Any] | None = None
+    # Scoping (mirrors Claude Code / Cursor skill path-scoping):
+    paths: list[str] = field(default_factory=list)  # path prefixes where active
+    globs: list[str] = field(default_factory=list)  # file-glob triggers
+    disable_model_invocation: bool = False  # if True, skill is manual-only

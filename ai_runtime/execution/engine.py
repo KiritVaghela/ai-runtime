@@ -14,8 +14,15 @@ from ai_runtime.execution.pipeline import (
     LLMStage,
     ToolLoopStage,
 )
+from ai_runtime.execution.pipeline.planner_stage import PlannerStage
+from ai_runtime.execution.pipeline.supervisor_stage import SupervisorStage
+from ai_runtime.execution.pipeline.compaction_stage import CompactionStage
+from ai_runtime.execution.pipeline.memory_consolidation_stage import (
+    MemoryConsolidationStage,
+)
 from .mode import ExecutionMode
 from .event_processor import EventProcessor
+from .plan import Plan
 
 class ExecutionEngine:
 
@@ -28,9 +35,12 @@ class ExecutionEngine:
     def _create_default_pipeline(self) -> ExecutionPipeline:
         return (
             ExecutionPipeline()
+            .add(CompactionStage())
             .add(RequestBuilderStage())
+            .add(SupervisorStage())
             .add(LLMStage())
             .add(ToolLoopStage())
+            .add(MemoryConsolidationStage())
         )
 
     async def chat(
@@ -54,6 +64,28 @@ class ExecutionEngine:
         )
 
         return context.response
+
+    async def plan(
+        self,
+        context: ExecutionContext,
+        message: ChatMessage | ChatRequest,
+    ) -> Plan:
+        """Produce a reviewable plan without executing any tools.
+
+        Mirrors the plan-mode of agentic coding tools: research and
+        structuring happen before any mutating action. The returned `Plan`
+        can be inspected, edited, or approved before calling `chat`/`stream`.
+        """
+        context.mode = ExecutionMode.PLAN
+        context.conversation.add(message)
+
+        pipeline = (
+            ExecutionPipeline()
+            .add(RequestBuilderStage())
+            .add(PlannerStage())
+        )
+        context = await pipeline.execute(context)
+        return context.plan
 
     async def stream(
         self,

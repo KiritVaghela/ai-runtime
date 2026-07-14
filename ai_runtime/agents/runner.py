@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ai_runtime.conversation import ChatMessage, ChatRequest
-from ai_runtime.execution import ExecutionContext, ExecutionEngine
+from ai_runtime.execution.plan import Plan
 from ai_runtime.streaming import StreamEvent
+
+if TYPE_CHECKING:
+    from ai_runtime.execution import ExecutionEngine
+
+from ai_runtime.execution.context import ExecutionContext
 
 from .agent import Agent
 
@@ -20,8 +25,12 @@ class AgentRunner:
     """
 
     def __init__(self, agent: Agent, engine: ExecutionEngine | None = None):
+        if engine is None:
+            from ai_runtime.execution import ExecutionEngine
+
+            engine = ExecutionEngine()
         self.agent = agent
-        self.engine = engine or ExecutionEngine()
+        self.engine = engine
 
     async def run(
         self,
@@ -34,6 +43,8 @@ class AgentRunner:
             provider=self.agent.provider,
             tool_executor=self.agent.tool_executor,
         )
+        context.agent = self.agent
+        context._engine = self.engine
 
         # Seed conversation with system prompt + persisted history.
         prompt = system_prompt or self.agent.effective_system_prompt()
@@ -73,6 +84,8 @@ class AgentRunner:
             provider=self.agent.provider,
             tool_executor=self.agent.tool_executor,
         )
+        context.agent = self.agent
+        context._engine = self.engine
 
         prompt = system_prompt or self.agent.effective_system_prompt()
         if prompt:
@@ -91,3 +104,31 @@ class AgentRunner:
             yield event
 
         await self.agent.memory.save()
+
+    async def plan(
+        self,
+        message: str | ChatMessage | ChatRequest,
+        system_prompt: str | None = None,
+    ) -> Plan:
+        """Produce a reviewable plan for the agent without executing tools."""
+        await self.agent.ensure_memory_loaded()
+
+        context = ExecutionContext(
+            provider=self.agent.provider,
+            tool_executor=self.agent.tool_executor,
+        )
+
+        prompt = system_prompt or self.agent.effective_system_prompt()
+        if prompt:
+            context.conversation.add(ChatMessage.system(prompt))
+        for msg in self.agent.memory.conversation.messages:
+            context.conversation.add(msg)
+
+        if isinstance(message, str):
+            user_msg = ChatMessage.user(message)
+        elif isinstance(message, ChatMessage):
+            user_msg = message
+        else:
+            user_msg = ChatMessage.user(message.messages[-1].content)
+
+        return await self.engine.plan(context, user_msg)

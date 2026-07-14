@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator
 from ..streaming import StreamEvent
 from ..conversation import Usage
 from ..streaming import FinishReason
+from .plan import Plan
 
 class ExecutionContext(BaseModel):
 
@@ -33,6 +34,14 @@ class ExecutionContext(BaseModel):
     request: ChatRequest | None = None
 
     response: ChatResponse | None = None
+
+    plan: Plan | None = None
+
+    agent: Any = None
+
+    _engine: Any = None
+
+    hooks: Any = None  # Optional[HookRegistry]
 
     #
     # Execution Options

@@ -22,6 +22,12 @@ class ProviderConfig(BaseModel):
 
     max_retries: int = 2
 
+    # Reasoning / thinking controls (Codex's model_reasoning_effort,
+    # Claude's extended thinking). Forwarded to providers that support it.
+    reasoning_effort: str | None = None  # e.g. "low" | "medium" | "high"
+    thinking_enabled: bool = False
+    thinking_budget_tokens: int | None = None
+
     @computed_field
     @property
     def litellm_model(self) -> str:

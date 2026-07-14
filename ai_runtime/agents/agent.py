@@ -6,6 +6,7 @@ from ai_runtime.conversation import ChatMessage
 from ai_runtime.memory import MemoryStore, InMemoryStore, ConversationMemory
 from ai_runtime.skills import SkillRegistry, ComposedSkills
 from ai_runtime.tools import ToolRegistry, ToolExecutor
+from .subagent import SubAgentSpec
 
 
 class Agent:
@@ -26,6 +27,7 @@ class Agent:
         skill_registry: SkillRegistry | None = None,
         skills: list[str] | None = None,
         memory: ConversationMemory | None = None,
+        sub_agents: list[SubAgentSpec] | None = None,
     ):
         self.name = name
         self.provider = provider
@@ -38,6 +40,7 @@ class Agent:
         self.skills: ComposedSkills | None = None
         if skill_registry is not None and skills:
             self.skills = skill_registry.compose(skills)
+        self.sub_agents = sub_agents or []
 
     def effective_system_prompt(self) -> str | None:
         """Combine the agent prompt with any composed skill prompts."""

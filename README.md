@@ -21,6 +21,32 @@ applications and agent workflows.
 -   Provider metadata, capabilities, and request mapping
 -   Fully tested runtime and provider integration coverage
 
+### Agentic capabilities (v0.6.0)
+
+`ai_runtime` now closes the gap with agentic coding tools (Claude Code,
+OpenAI Codex, Cursor):
+
+-   **Plan mode** — `AgentRunner.plan()` / `ExecutionEngine.plan()` produce a
+    reviewable `Plan` (read-only, no tools run) before execution.
+-   **Sub-agents** — declare `SubAgentSpec`s on an `Agent`; the `SupervisorStage`
+    fans them out in parallel with isolated contexts and aggregates results.
+-   **Permissions** — `PermissionPolicy` + `GuardedToolExecutor` enforce
+    allow/deny/ask rules (glob-matched) over tool calls, mirroring tiered
+    permission modes.
+-   **Hooks** — `HookRegistry` with `PreToolUse` / `PostToolUse` / `PreLLM` /
+    `PostLLM` / `OnPlan` / `OnCompact` / `OnError` lifecycle hooks.
+-   **Auto compaction** — `CompactionStage` summarizes or drops old turns when
+    the context window exceeds its token budget.
+-   **Memory consolidation** — `MemoryConsolidationStage` writes durable
+    learnings (`LEARNING: ...`) back to the agent's `MemoryStore`.
+-   **MCP client** — `MCPClient` + `StdioTransport` speak JSON-RPC over stdio;
+    `register_mcp_tools()` wraps server tools as runtime `Tool`s.
+-   **Background tasks** — `BackgroundTaskRegistry` for resumable async tasks
+    (à la `codex resume` / Claude `/tasks`).
+-   **Skill scoping** — `Skill` gains `paths` / `globs` / `disable_model_invocation`.
+-   **Reasoning controls** — `ProviderConfig.reasoning_effort` / `thinking_enabled`
+    / `thinking_budget_tokens`, forwarded when the provider supports reasoning.
+
 ## Installation
 
 ### From PyPI

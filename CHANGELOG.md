@@ -5,6 +5,42 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-15
+
+### Added (Agentic gap remediation vs Claude Code / Codex / Cursor)
+- **Plan mode**: `ExecutionMode.PLAN`, `Plan`/`PlanStep` models, `PlannerStage`,
+  and `ExecutionEngine.plan()` / `AgentRunner.plan()` for reviewable,
+  read-only planning before execution.
+- **Sub-agents**: `SubAgentSpec` / `SubAgentResult`, `Agent.sub_agents`, and
+  `SupervisorStage` that fans out child agents in parallel with isolated
+  contexts and aggregates results into the parent conversation.
+- **Permissions**: `PermissionPolicy`, `PermissionRule`, `PermissionDecision`,
+  and `GuardedToolExecutor` enforcing allow/deny/ask rules (glob-matched over
+  tool name + rendered params) before tool execution.
+- **Hooks**: `HookRegistry` + `HookEvent` (`PreToolUse`, `PostToolUse`,
+  `PreLLM`, `PostLLM`, `OnPlan`, `OnCompact`, `OnError`) wired into
+  `LLMStage` and `ToolLoopStage` via `ExecutionContext.hooks`.
+- **Auto compaction**: `CompactionStage` summarizes/drops old turns when the
+  conversation exceeds the token budget; fires an `OnCompact` hook.
+- **Memory consolidation**: `MemoryConsolidationStage` extracts `LEARNING:`
+  lines and persists them to the agent's `MemoryStore` after a task.
+- **MCP client**: `MCPClient`, `MCPTransport`, `StdioTransport` (JSON-RPC over
+  stdio), and `MCPTool` / `register_mcp_tools()` to wrap server tools as
+  runtime `Tool`s.
+- **Background tasks**: `BackgroundTaskRegistry` / `BackgroundTask` with
+  submit / start / wait / cancel / resume semantics.
+- **Skill scoping**: `Skill` gains `paths`, `globs`, and
+  `disable_model_invocation` fields.
+- **Reasoning controls**: `ProviderConfig.reasoning_effort`,
+  `thinking_enabled`, `thinking_budget_tokens` forwarded by `LiteLLMMapper`
+  when `capabilities.reasoning` is set.
+
+### Changed
+- Default execution pipeline now composes: `CompactionStage` →
+  `RequestBuilderStage` → `SupervisorStage` → `LLMStage` → `ToolLoopStage` →
+  `MemoryConsolidationStage`.
+- Bumped version to `0.6.0`.
+
 ## [0.5.0] - 2026-07-14
 
 ### Added (P2 — contract breadth)

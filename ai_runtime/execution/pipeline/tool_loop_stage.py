@@ -136,6 +136,26 @@ class ToolLoopStage(ExecutionStage):
                 except json.JSONDecodeError:
                     arguments = {"input": arguments}
 
+            # PreToolUse hook: may block or patch the arguments.
+            if context.hooks is not None:
+                from ..hooks import HookEvent, HookContext
+
+                pre = await context.hooks.trigger(
+                    HookContext(
+                        event=HookEvent.PRE_TOOL_USE,
+                        agent=context.agent,
+                        tool_name=call.name,
+                        tool_input=arguments,
+                    )
+                )
+                if not pre.continue_:
+                    return ToolResult(
+                        success=False,
+                        error=pre.note or f"Blocked by PreToolUse hook: {call.name}",
+                    )
+                if "tool_input" in pre.patch:
+                    arguments = pre.patch["tool_input"]
+
             timeout = None
             if isinstance(arguments, dict):
                 timeout = arguments.pop("timeout", None)
@@ -150,6 +170,20 @@ class ToolLoopStage(ExecutionStage):
                 result = ToolResult(
                     success=True,
                     output=result,
+                )
+
+            # PostToolUse hook: may observe or annotate the result.
+            if context.hooks is not None:
+                from ..hooks import HookEvent, HookContext
+
+                await context.hooks.trigger(
+                    HookContext(
+                        event=HookEvent.POST_TOOL_USE,
+                        agent=context.agent,
+                        tool_name=call.name,
+                        tool_input=arguments,
+                        tool_result=result,
+                    )
                 )
             return result
         except Exception as exc:  # noqa: BLE001
