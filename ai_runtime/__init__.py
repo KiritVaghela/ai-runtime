@@ -24,6 +24,20 @@ from .tools.permissions import (
     PermissionError,
 )
 from .tools.guarded_executor import GuardedToolExecutor
+from .tools.builtin import (
+    ReadFileTool,
+    WriteFileTool,
+    EditFileTool,
+    GlobTool,
+    GrepTool,
+    BashTool,
+    register_builtin_tools,
+)
+from .tools.checkpoints import CheckpointManager, Checkpoint
+from .agents.config_files import load_project_instructions, discover_instructions
+from .server import AgentServer, AgentRequest, AgentResponse
+from .workspace import Project
+from .commands import CommandRegistry, Command, default_commands
 
 __all__ = [
     "AgentRuntime",
@@ -49,11 +63,22 @@ __all__ = [
     "ToolRegistry",
     "ToolExecutor",
     "FunctionTool",
+    "ReadFileTool",
+    "WriteFileTool",
+    "EditFileTool",
+    "GlobTool",
+    "GrepTool",
+    "BashTool",
+    "register_builtin_tools",
+    "CheckpointManager",
+    "Checkpoint",
     "PermissionPolicy",
     "PermissionRule",
     "PermissionDecision",
     "PermissionError",
     "GuardedToolExecutor",
+    "load_project_instructions",
+    "discover_instructions",
     "Plan",
     "HookRegistry",
     "HookEvent",
@@ -65,4 +90,11 @@ __all__ = [
     "register_mcp_tools",
     "BackgroundTaskRegistry",
     "BackgroundTask",
+    "AgentServer",
+    "AgentRequest",
+    "AgentResponse",
+    "Project",
+    "CommandRegistry",
+    "Command",
+    "default_commands",
 ]

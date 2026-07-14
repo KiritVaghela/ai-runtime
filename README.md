@@ -47,6 +47,32 @@ OpenAI Codex, Cursor):
 -   **Reasoning controls** — `ProviderConfig.reasoning_effort` / `thinking_enabled`
     / `thinking_budget_tokens`, forwarded when the provider supports reasoning.
 
+### Integration surfaces (v0.7.0)
+
+To embed `ai_runtime` in a **web app, desktop app, VS Code, or CLI** like
+Claude Code / Codex / Cursor / Copilot, the framework now ships:
+
+-   **Built-in tools** — `ReadFileTool`, `WriteFileTool`, `EditFileTool`,
+    `GlobTool`, `GrepTool`, `BashTool` (scoped to a sandbox root via
+    `register_builtin_tools`). These mirror the file/shell/grep primitives of
+    the four tools.
+-   **Checkpoints / undo** — `CheckpointManager` snapshots files before edits
+    so the UI can roll back (à la Cursor/Claude/Copilot checkpoints).
+-   **Agent config files** — `load_project_instructions()` discovers
+    `.github/copilot-instructions.md`, `AGENTS.md`, `CLAUDE.md`,
+    `.cursor/rules` from the project root and folds them into the system prompt.
+-   **Transport-agnostic server** — `AgentServer` exposes an `Agent` over a
+    JSON-line protocol (`AgentRequest` / `AgentResponse` / `StreamEvent`) via
+    `serve_stdio()` (VS Code / CLI) and `serve_http()` (web / desktop).
+-   **CLI** — `ai-runtime` console script: `ai-runtime "prompt" --model ...`,
+    `--mode plan|stream`, `--serve` (stdio), `--http` (HTTP server), `--yolo`.
+-   **Workspace / project** — `Project` scopes memory, tools, permissions, and
+    checkpoints to a project root (the unit you mount in a client).
+-   **Slash commands** — `CommandRegistry` / `default_commands()`
+    (`/compact`, `/context`, `/clear`) mirroring Copilot's `/` menu.
+-   **BYO provider** — `ProviderConfig.from_env()` reads `COPILOT_PROVIDER_*`
+    vars to point at Ollama / vLLM / any OpenAI-compatible endpoint.
+
 ## Installation
 
 ### From PyPI

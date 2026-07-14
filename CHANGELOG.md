@@ -5,6 +5,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-14
+
+### Added (Integration-surface gaps vs Claude Code / Codex / Cursor / Copilot)
+- **Built-in tools**: `ReadFileTool`, `WriteFileTool`, `EditFileTool`,
+  `GlobTool`, `GrepTool`, `BashTool` in `tools/builtin/`; `register_builtin_tools()`
+  scopes them to a sandbox root (workspace trust).
+- **Checkpoints**: `CheckpointManager` snapshots files before edits for
+  rollback (à la Cursor/Claude/Copilot checkpoints).
+- **Agent config files**: `load_project_instructions()` / `discover_instructions()`
+  discover `.github/copilot-instructions.md`, `AGENTS.md`, `CLAUDE.md`,
+  `.cursor/rules` from a project root.
+- **Transport-agnostic server**: `AgentServer` with `serve_stdio()` (VS Code /
+  CLI) and `serve_http()` (web / desktop); `AgentRequest` / `AgentResponse` /
+  `serialize_event` wire protocol in `server/`.
+- **CLI**: `ai-runtime` console script (`--model`, `--mode plan|stream`,
+  `--serve`, `--http`, `--yolo`, `--cwd`).
+- **Workspace**: `Project` scopes memory, tools, permissions, checkpoints, and
+  instructions to a project root.
+- **Slash commands**: `CommandRegistry` / `default_commands()` (`/compact`,
+  `/context`, `/clear`).
+- **BYO provider**: `ProviderConfig.from_env()` reads `COPILOT_PROVIDER_*`
+  vars for Ollama / vLLM / OpenAI-compatible endpoints.
+
+### Changed
+- Bumped version to `0.7.0`.
+
 ## [0.6.0] - 2026-07-15
 
 ### Added (Agentic gap remediation vs Claude Code / Codex / Cursor)
