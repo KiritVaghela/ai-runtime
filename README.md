@@ -147,6 +147,43 @@ response = await session.chat(
 print(response.message.content)
 ```
 
+## Agents
+
+An `Agent` bundles a provider, system prompt, tools, memory, and skills.
+`AgentRunner` drives execution (including the automatic tool-call loop) and
+persists conversation memory across turns.
+
+```python
+from ai_runtime import AgentRuntime, Agent, AgentRunner
+from ai_runtime.tools import ToolRegistry, ToolExecutor, FunctionTool
+
+runtime = AgentRuntime.from_provider(
+    provider=ProviderType.GROQ,
+    model="llama-3.3-70b-versatile",
+    api_key=os.getenv("GROQ_API_KEY"),
+)
+
+registry = ToolRegistry()
+registry.register(FunctionTool("ping", lambda ctx, inp: "pong"))
+
+agent = runtime.create_agent(
+    name="helper",
+    system_prompt="You are a helpful assistant.",
+    tool_registry=registry,
+)
+
+runner = AgentRunner(agent)
+response = await runner.run("Ping the tool for me.")
+print(response.message.content)
+```
+
+## Memory, RAG & Skills
+
+- `ai_runtime.memory` — `MemoryStore`, `ConversationMemory`, `SemanticMemory`.
+- `ai_runtime.rag` — `Document`, `VectorStore`, `Retriever` for retrieval.
+- `ai_runtime.skills` — `Skill` + `SkillRegistry` for composable behaviors.
+- `ai_runtime.context` — `ContextWindow` for token budgeting/truncation.
+
 ## Documentation
 
 -   [Migration Guide](docs/migration_guide.md)

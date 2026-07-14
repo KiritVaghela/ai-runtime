@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-14
+
+### Added
+- **Context management** (`ai_runtime.context`): `ContextWindow` with token
+  budgeting, `DropOldestStrategy` truncation (preserves system messages), and
+  a pluggable `summarizer` hook for semantic compaction.
+- **Memory subsystem** (`ai_runtime.memory`): `MemoryStore` interface +
+  `InMemoryStore`, `ConversationMemory` for cross-turn persistence, and
+  `SemanticMemory` for summarization-based compaction.
+- **RAG subsystem** (`ai_runtime.rag`): `Document`, `VectorStore` interface +
+  `InMemoryVectorStore` (cosine similarity), and `Retriever` with context
+  formatting.
+- **Skills subsystem** (`ai_runtime.skills`): `Skill` (system prompt + tools +
+  optional run hook) and `SkillRegistry` with `ComposedSkills` aggregation.
+- **Agent subsystem** (`ai_runtime.agents`): declarative `Agent` (provider +
+  system prompt + tools + memory + skills) and `AgentRunner` orchestration
+  that drives the execution pipeline (including the tool-call loop) and
+  persists conversation memory.
+- `AgentRuntime.create_agent(...)` builds an `Agent` bound to a provider.
+- Top-level package now re-exports `ContextWindow`, memory, RAG, skills,
+  agent, and tool primitives.
+
+### Changed
+- `AgentRuntime` exposes both `create_session()` and `create_agent()`.
+
 ## [0.3.0] - 2026-07-14
 
 ### Added

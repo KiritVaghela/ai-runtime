@@ -13,6 +13,7 @@ from ai_runtime.session import (
 
 from ai_runtime.execution import ExecutionContext
 from ai_runtime.execution import ExecutionEngine
+from ai_runtime.agents import Agent
 
 
 class AgentRuntime:
@@ -59,5 +60,22 @@ class AgentRuntime:
         return Session(
             context=context,
             engine=engine
+        )
+
+    def create_agent(
+        self,
+        name: str,
+        system_prompt: str | None = None,
+        **agent_kwargs,
+    ) -> Agent:
+        """Create an `Agent` bound to a provider from this runtime."""
+
+        provider = self.registry.create(self._config)
+
+        return Agent(
+            name=name,
+            provider=provider,
+            system_prompt=system_prompt,
+            **agent_kwargs,
         )
     
