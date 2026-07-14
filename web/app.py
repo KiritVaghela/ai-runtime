@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -107,6 +108,35 @@ class ProviderReq(BaseModel):
     reasoning_effort: str | None = None
 
 
+class RegenerateReq(BaseModel):
+    session_id: str
+    # Index of the user message whose assistant reply should be regenerated.
+    # If omitted, the last user message is used.
+    user_index: int | None = None
+    mode: str = "chat"
+    reasoning_effort: str | None = None
+
+
+class ContinueReq(BaseModel):
+    session_id: str
+    mode: str = "chat"
+    reasoning_effort: str | None = None
+
+
+class FeedbackReq(BaseModel):
+    session_id: str | None = None
+    index: int
+    feedback: str  # "up" | "down"
+
+
+class PinReq(BaseModel):
+    pinned: bool = True
+
+
+class ExportReq(BaseModel):
+    format: str = "markdown"  # markdown | json
+
+
 # ---------------------------------------------------------------------------
 # Rate-limit helpers
 # ---------------------------------------------------------------------------
@@ -156,7 +186,12 @@ def _record_event(turn: list[dict[str, Any]], ev_dict: dict[str, Any], buf: dict
         if turn and turn[-1].get("type") == "text":
             turn[-1]["content"] = buf["text"]
         else:
-            turn.append({"type": "text", "content": buf["text"]})
+            # A fresh assistant turn. Keep any prior versions so the UI can
+            # show them with < > arrows (only one regeneration is allowed).
+            versions = []
+            if turn and turn[-1].get("type") == "text" and turn[-1].get("versions"):
+                versions = turn[-1]["versions"]
+            turn.append({"type": "text", "content": buf["text"], "versions": versions})
     elif t == "thinking":
         buf["thinking"] = buf.get("thinking", "") + ev_dict.get("delta", "")
         if turn and turn[-1].get("type") == "thinking":
@@ -211,23 +246,6 @@ async def create_session(req: CreateSessionReq):
     return {"session_id": session.id, "project": session.project.name, "name": session.name}
 
 
-@app.get("/api/sessions")
-async def list_sessions():
-    # Only show sessions that actually have a message (persisted ones).
-    return [
-        {
-            "session_id": s.id,
-            "project": s.project.name,
-            "name": s.name,
-            "mode": s.mode,
-            "reasoning_effort": s.reasoning_effort,
-            "thinking_enabled": s.thinking_enabled,
-        }
-        for s in manager.sessions.values()
-        if s.history
-    ]
-
-
 @app.post("/api/sessions/{session_id}/rename")
 async def rename_session(session_id: str, req: RenameSessionReq):
     session = manager.rename_session(session_id, req.name)
@@ -277,6 +295,94 @@ async def get_history(session_id: str):
     if session is None:
         raise HTTPException(404, "session not found")
     return {"session_id": session.id, "history": session.history}
+
+
+@app.post("/api/sessions/{session_id}/feedback")
+async def set_feedback(session_id: str, req: FeedbackReq):
+    session = manager.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    if 0 <= req.index < len(session.history):
+        session.history[req.index]["feedback"] = req.feedback
+        manager._save_session(session)
+    return {"ok": True}
+
+
+@app.post("/api/sessions/{session_id}/pin")
+async def pin_session(session_id: str, req: PinReq):
+    session = manager.pin_session(session_id, req.pinned)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    return {"session_id": session.id, "pinned": session.pinned}
+
+
+@app.get("/api/sessions/{session_id}/export")
+async def export_session(session_id: str, format: str = "markdown"):
+    session = manager.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    if format == "json":
+        return Response(content=json.dumps(session.history, indent=2), media_type="application/json")
+    # Markdown export.
+    lines = [f"# {session.name}", ""]
+    for e in session.history:
+        t = e.get("type")
+        if t == "user":
+            lines += ["**You:**", e.get("content", ""), ""]
+        elif t == "text":
+            lines += ["**ai_runtime:**", e.get("content", ""), ""]
+        elif t == "plan":
+            lines += ["**Plan:**", e.get("content", ""), ""]
+        elif t == "thinking":
+            lines += ["*Thinking:*", e.get("content", ""), ""]
+        elif t == "tool_call":
+            for c in e.get("calls", []):
+                lines += [f"*Tool call:* `{c.get('name')}`", "```", json.dumps(c.get("arguments", {}), indent=2), "```", ""]
+        elif t == "tool_result":
+            lines += [f"*Tool result ({e.get('name')}):*", "```", str(e.get("output", e.get("error", ""))), "```", ""]
+    md = "\n".join(lines)
+    return Response(content=md, media_type="text/markdown")
+
+
+@app.get("/api/sessions")
+async def list_sessions(q: str | None = None):
+    # Only show sessions that actually have a message (persisted ones).
+    sessions = [
+        {
+            "session_id": s.id,
+            "project": s.project.name,
+            "name": s.name,
+            "mode": s.mode,
+            "reasoning_effort": s.reasoning_effort,
+            "thinking_enabled": s.thinking_enabled,
+            "pinned": getattr(s, "pinned", False),
+        }
+        for s in manager.sessions.values()
+        if s.history
+    ]
+    if q:
+        ql = q.lower()
+        def _matches(s):
+            if ql in s["name"].lower():
+                return True
+            sess = manager.get_session(s["session_id"])
+            if not sess:
+                return False
+            for e in sess.history:
+                content = e.get("content") or ""
+                if isinstance(content, str) and ql in content.lower():
+                    return True
+                # tool calls / results carry nested text
+                for calls in e.get("calls", []) if isinstance(e, dict) else []:
+                    if isinstance(calls, dict) and ql in json.dumps(calls.get("arguments", {}), default=str).lower():
+                        return True
+                if e.get("output") and isinstance(e.get("output"), str) and ql in e["output"].lower():
+                    return True
+            return False
+        sessions = [s for s in sessions if _matches(s)]
+    # Pinned first, then by recency (insertion order).
+    sessions.sort(key=lambda s: (not s["pinned"],))
+    return sessions
 
 
 # ---------------------------------------------------------------------------
@@ -362,79 +468,187 @@ async def ws_chat(websocket: WebSocket, session_id: str):
         await websocket.close()
         return
 
-    try:
-        while True:
-            data = await websocket.receive_json()
-            message = data.get("message", "")
-            mode = data.get("mode", "chat")
+    # Track the currently-running generation task so the client can stop it.
+    current_task: asyncio.Task | None = None
 
-            if mode == "plan":
-                # Stream the plan live (markdown text + thinking deltas) so it
-                # types out like chat. Effort / thinking / streaming all apply.
-                # The plan is parsed during streaming (single LLM call); the final
-                # `plan` event swaps the streamed bubble for a clean plan block.
-                session.history.append({"type": "user", "content": message})
-                try:
-                    async for event in session.runner.stream_plan(message):
-                        logger.info("[plan][ws] event=%s payload=%s", getattr(event, "type", None), serialize_event(event))
-                        await websocket.send_text(serialize_event(event))
-                    # The planner parsed the plan during streaming. Echo back
-                    # the EXACT text that was streamed (not the reformatted
-                    # Plan.__str__) so the final block matches what the user saw.
-                    plan_obj = session.runner.last_plan
-                    plan_text = session.runner.last_plan_text or (str(plan_obj) if plan_obj else "")
-                    logger.info(
-                        "[plan][ws] last_plan_text_len=%s fallback_used=%s",
-                        len(session.runner.last_plan_text or ""),
-                        not bool(session.runner.last_plan_text),
-                    )
-                    session.history.append({"type": "plan", "content": plan_text})
-                    manager._save_session(session)
-                    await websocket.send_json({"type": "plan", "plan": plan_text})
-                except Exception as e:  # noqa: BLE001
-                    if session.history and session.history[-1].get("type") == "user":
-                        session.history.pop()
-                    manager._save_session(session)
-                    if _is_rate_limit(e):
-                        await websocket.send_json(_rate_limit_event(session, e))
-                    else:
-                        logger.exception("WebSocket plan failed for session %s", session_id)
-                        await websocket.send_json({"type": "error", "error": f"{type(e).__name__}: {e}"})
-                continue
-
-            # Stream events as they arrive, recording each as a structured
-            # history entry (user, text, thinking, tool_call, tool_result, usage).
-            session.history.append({"type": "user", "content": message})
-            turn: list[dict[str, Any]] = []
-            buf: dict[str, str] = {}
+    async def _stream_turn(prompt: str, mode: str, effort: str | None = None, atts: list | None = None, send_done: bool = True, record_user: bool = True):
+        """Stream a single turn, recording events into history. Returns when done.
+        When `send_done` is False the caller is responsible for sending the
+        terminal `done` event (e.g. to attach regeneration metadata).
+        When `record_user` is False the caller has already recorded the user
+        message (e.g. during a regeneration, which reuses the existing one).
+        """
+        nonlocal current_task
+        atts = atts or []
+        if mode == "plan":
+            session.history.append({"type": "user", "content": prompt, "attachments": atts})
             try:
-                async for event in session.runner.stream(message):
-                    await websocket.send_text(serialize_event(event))
-                    if getattr(event, "type", None) is None:
-                        continue
-                    ev_dict = event.model_dump() if hasattr(event, "model_dump") else {"type": "unknown"}
-                    # Normalize enum types to their string values for storage.
-                    if "type" in ev_dict and hasattr(ev_dict["type"], "value"):
-                        ev_dict["type"] = ev_dict["type"].value
-                    _record_event(turn, ev_dict, buf)
-                session.history.extend(turn)
+                async def _plan():
+                    async for event in session.runner.stream_plan(prompt):
+                        await websocket.send_text(serialize_event(event))
+                current_task = asyncio.create_task(_plan())
+                await current_task
+                plan_obj = session.runner.last_plan
+                plan_text = session.runner.last_plan_text or (str(plan_obj) if plan_obj else "")
+                session.history.append({"type": "plan", "content": plan_text})
                 manager._save_session(session)
-                await websocket.send_json({"type": "done"})
+                await websocket.send_json({"type": "plan", "plan": plan_text})
+            except asyncio.CancelledError:
+                # Stopped by the user — keep the user message, drop the plan.
+                if session.history and session.history[-1].get("type") == "user":
+                    session.history.pop()
+                manager._save_session(session)
+                await websocket.send_json({"type": "stopped"})
+                raise
             except Exception as e:  # noqa: BLE001
-                # Roll back the user message we optimistically appended.
                 if session.history and session.history[-1].get("type") == "user":
                     session.history.pop()
                 manager._save_session(session)
                 if _is_rate_limit(e):
                     await websocket.send_json(_rate_limit_event(session, e))
                 else:
-                    logger.exception("WebSocket stream failed for session %s", session_id)
+                    logger.exception("WebSocket plan failed for session %s", session_id)
                     await websocket.send_json({"type": "error", "error": f"{type(e).__name__}: {e}"})
+            return
+
+        # Chat / tool-loop turn.
+        if record_user:
+            session.history.append({"type": "user", "content": prompt, "attachments": atts})
+        turn: list[dict[str, Any]] = []
+        buf: dict[str, str] = {}
+        try:
+            async def _chat():
+                async for event in session.runner.stream(prompt):
+                    await websocket.send_text(serialize_event(event))
+                    if getattr(event, "type", None) is None:
+                        return
+                    ev_dict = event.model_dump() if hasattr(event, "model_dump") else {"type": "unknown"}
+                    if "type" in ev_dict and hasattr(ev_dict["type"], "value"):
+                        ev_dict["type"] = ev_dict["type"].value
+                    _record_event(turn, ev_dict, buf)
+            current_task = asyncio.create_task(_chat())
+            await current_task
+            session.history.extend(turn)
+            manager._save_session(session)
+            if send_done:
+                await websocket.send_json({"type": "done"})
+        except asyncio.CancelledError:
+            # Stopped mid-stream: keep what we have, persist partial turn.
+            session.history.extend(turn)
+            manager._save_session(session)
+            await websocket.send_json({"type": "stopped"})
+            raise
+        except Exception as e:  # noqa: BLE001
+            if session.history and session.history[-1].get("type") == "user":
+                session.history.pop()
+            manager._save_session(session)
+            if _is_rate_limit(e):
+                await websocket.send_json(_rate_limit_event(session, e))
+            else:
+                logger.exception("WebSocket stream failed for session %s", session_id)
+                await websocket.send_json({"type": "error", "error": f"{type(e).__name__}: {e}"})
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            action = data.get("action", "send")
+            message = data.get("message", "")
+            mode = data.get("mode", "chat")
+            effort = data.get("reasoning_effort", None)
+            attachments = data.get("attachments", []) or []
+
+            if action == "stop":
+                if current_task and not current_task.done():
+                    current_task.cancel()
+                continue
+
+            if action == "regenerate":
+                # Re-generate the last assistant reply IN PLACE (no new bubble).
+                # Each regeneration is appended as a new version so the user can
+                # navigate between responses with < > arrows. Find the last
+                # assistant text entry and the user entry that precedes it.
+                last_text = None
+                last_user = None
+                for i in range(len(session.history) - 1, -1, -1):
+                    if session.history[i].get("type") == "text":
+                        last_text = i
+                        break
+                if last_text is None:
+                    await websocket.send_json({"type": "error", "error": "nothing to regenerate"})
+                    continue
+                for i in range(last_text - 1, -1, -1):
+                    if _is_user_entry(session.history[i]):
+                        last_user = i
+                        break
+                if last_user is None:
+                    await websocket.send_json({"type": "error", "error": "nothing to regenerate"})
+                    continue
+                # Stash the current response as a version, then re-stream.
+                prev = session.history[last_text]
+                versions = list(prev.get("versions") or [])
+                versions.append({"content": prev.get("content", ""), "feedback": prev.get("feedback")})
+                session.history = session.history[: last_text]  # drop the old text entry
+                manager._save_session(session)
+                prompt = session.history[last_user]["content"]
+                # _stream_turn appends a new text entry; mark it as regenerated
+                # and carry the prior versions so the client can switch.
+                _regen_versions = versions  # captured for the post-stream patch
+                await _stream_turn(prompt, mode, effort, attachments, send_done=False, record_user=False)
+                # Patch the just-appended text entry with version metadata.
+                if session.history and session.history[-1].get("type") == "text":
+                    session.history[-1]["versions"] = _regen_versions
+                    session.history[-1]["regenerated"] = True
+                    session.history[-1]["version_index"] = len(_regen_versions)  # show latest
+                manager._save_session(session)
+                # Tell the client which bubble to update in place (no new bubble)
+                # and hand back the full version list so it can render the < > nav.
+                await websocket.send_json({
+                    "type": "done",
+                    "_action": "regenerate",
+                    "_target": last_text,
+                    "versions": _regen_versions,
+                    "version_index": len(_regen_versions),
+                })
+                continue
+
+            if action == "continue":
+                # Resume the last (truncated) assistant turn.
+                prompt = message or _last_user_content(session.history)
+                if not prompt:
+                    await websocket.send_json({"type": "error", "error": "nothing to continue"})
+                    continue
+                await _stream_turn(prompt, mode, effort, attachments)
+                continue
+
+            # Default: normal send.
+            await _stream_turn(message, mode, effort, attachments)
     except WebSocketDisconnect:
+        if current_task and not current_task.done():
+            current_task.cancel()
         return
     except Exception as e:  # noqa: BLE001
         logger.exception("WebSocket stream failed for session %s", session_id)
-        await websocket.send_json({"type": "error", "error": f"{type(e).__name__}: {e}"})
+        try:
+            await websocket.send_json({"type": "error", "error": f"{type(e).__name__}: {e}"})
+        except Exception:
+            pass
+
+
+def _is_user_entry(entry: dict[str, Any]) -> bool:
+    """A history entry counts as a user turn in either the new `type`-based
+    schema or the legacy `role`-based schema."""
+    if not isinstance(entry, dict):
+        return False
+    if entry.get("type") == "user":
+        return True
+    return entry.get("role") == "user"
+
+
+def _last_user_content(history: list[dict[str, Any]]) -> str:
+    for i in range(len(history) - 1, -1, -1):
+        if _is_user_entry(history[i]):
+            return history[i].get("content", "")
+    return ""
 
 
 # ---------------------------------------------------------------------------

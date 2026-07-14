@@ -45,6 +45,7 @@ class Session:
     base_url: str | None = None
     reasoning_effort: str | None = None
     thinking_enabled: bool = False
+    pinned: bool = False
     commands: CommandRegistry = field(default_factory=default_commands)
     history: list[dict[str, Any]] = field(default_factory=list)
 
@@ -138,6 +139,7 @@ class Manager:
                         "base_url": session.base_url,
                         "reasoning_effort": session.reasoning_effort,
                         "thinking_enabled": session.thinking_enabled,
+                        "pinned": session.pinned,
                         "history": session.history,
                     },
                     indent=2,
@@ -195,6 +197,7 @@ class Manager:
                 base_url=data.get("base_url"),
                 reasoning_effort=data.get("reasoning_effort"),
                 thinking_enabled=data.get("thinking_enabled", False),
+                pinned=data.get("pinned", False),
                 history=data.get("history", []),
             )
             self.sessions[sid] = session
@@ -313,6 +316,14 @@ class Manager:
             return None
         session.name = name
         session.named = True
+        self._save_session(session)
+        return session
+
+    def pin_session(self, session_id: str, pinned: bool) -> Session | None:
+        session = self.sessions.get(session_id)
+        if session is None:
+            return None
+        session.pinned = bool(pinned)
         self._save_session(session)
         return session
 

@@ -1,7 +1,8 @@
 // ai_runtime Web — frontend logic (vanilla JS, no build step).
-// Markdown via marked + DOMPurify; syntax highlight via highlight.js.
+// Markdown via marked + DOMPurify; syntax highlight via highlight.js; diagrams via mermaid.
 
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 const api = async (method, path, body) => {
   const res = await fetch(path, {
     method,
@@ -16,9 +17,22 @@ const api = async (method, path, body) => {
   return res.json();
 };
 
+// ---- Global client state (Phase 0) ----
+const state = {
+  streaming: false,
+  canStop: false,
+  fontSize: 15,
+};
+
+// Element being regenerated (so streaming updates it in place, no new bubble).
+let regenTargetEl = null;
+
 // Configure Markdown renderer.
 if (window.marked) {
   marked.setOptions({ breaks: true, gfm: true });
+}
+if (window.mermaid) {
+  mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
 }
 function renderMarkdown(text) {
   const raw = window.marked ? marked.parse(text || "") : text || "";
@@ -27,6 +41,31 @@ function renderMarkdown(text) {
   tmp.innerHTML = clean;
   tmp.querySelectorAll("pre code").forEach((block) => {
     if (window.hljs) hljs.highlightElement(block);
+  });
+  // Render mermaid blocks.
+  tmp.querySelectorAll("code.language-mermaid").forEach((block) => {
+    const pre = block.parentElement;
+    const div = document.createElement("div");
+    div.className = "mermaid";
+    div.textContent = block.textContent;
+    pre.replaceWith(div);
+    try { if (window.mermaid) mermaid.run({ nodes: [div] }); } catch {}
+  });
+  // Add an "open in artifact" action to fenced code blocks (Artifacts / Canvas).
+  // Use data attributes + event delegation (set via innerHTML, so listeners
+  // wouldn't survive otherwise).
+  tmp.querySelectorAll("pre code").forEach((block) => {
+    const pre = block.parentElement;
+    const lang = (block.className.match(/language-(\w+)/) || [])[1] || "";
+    const code = block.textContent;
+    const btn = document.createElement("button");
+    btn.className = "artifact-open-btn";
+    btn.title = "Open in artifact panel";
+    btn.textContent = "⧉ Open";
+    btn.dataset.lang = lang;
+    btn.dataset.code = code;
+    pre.style.position = "relative";
+    pre.appendChild(btn);
   });
   return tmp.innerHTML;
 }
@@ -39,17 +78,31 @@ let managerProvider = null; // current backend provider (from /api/provider)
 let managerModel = null;     // current backend model
 // Settings chosen before a session exists (applied when the session is created).
 let pendingSettings = { mode: "chat", reasoning_effort: null, thinking_enabled: false };
+let msgCounter = 0; // assigns data-msg-id to rendered messages
 
 function hideEmpty() {
   const e = $("#empty-state");
   if (e) e.classList.add("hidden");
 }
 
+// ---- Toasts (Phase 0) ----
+function showToast(msg, type = "info") {
+  const t = document.createElement("div");
+  t.className = "toast " + type;
+  t.textContent = msg;
+  $("#toasts").appendChild(t);
+  setTimeout(() => t.classList.add("show"), 10);
+  setTimeout(() => {
+    t.classList.remove("show");
+    setTimeout(() => t.remove(), 250);
+  }, 2600);
+}
+
 // ---- Sidebar nav ----
-document.querySelectorAll(".nav-btn").forEach((b) =>
+$$(".nav-btn").forEach((b) =>
   b.addEventListener("click", () => {
-    document.querySelectorAll(".nav-btn").forEach((x) => x.classList.remove("active"));
-    document.querySelectorAll(".panel").forEach((x) => x.classList.remove("active"));
+    $$(".nav-btn").forEach((x) => x.classList.remove("active"));
+    $$(".panel").forEach((x) => x.classList.remove("active"));
     b.classList.add("active");
     $("#panel-" + b.dataset.panel).classList.add("active");
   })
@@ -57,50 +110,86 @@ document.querySelectorAll(".nav-btn").forEach((b) =>
 
 // ---- Sessions ----
 let sessionMeta = {}; // session_id -> { name, project, mode }
+let totalSessionCount = 0; // all sessions, regardless of search filter
 
-async function loadSessions(selectId = null) {
-  const sessions = await api("GET", "/api/sessions");
+async function loadSessions(selectId = null, q = "") {
+  const sessions = await api("GET", "/api/sessions" + (q ? "?q=" + encodeURIComponent(q) : ""));
+  // Only track the unfiltered total so the rail stays visible during searches
+  // that match nothing (keeping the search box usable).
+  if (!q) totalSessionCount = sessions.length;
   const list = $("#session-list");
   list.innerHTML = "";
   sessionMeta = {};
-  sessions.forEach((s) => {
+  // Split into pinned (top) and the rest, preserving backend order within each.
+  const pinned = sessions.filter((s) => s.pinned);
+  const others = sessions.filter((s) => !s.pinned);
+
+  const buildItem = (s) => {
     sessionMeta[s.session_id] = {
       name: s.name,
       project: s.project,
       mode: s.mode || "chat",
       reasoning_effort: s.reasoning_effort || null,
       thinking_enabled: !!s.thinking_enabled,
+      pinned: !!s.pinned,
     };
     const li = document.createElement("li");
     li.dataset.id = s.session_id;
     li.title = s.name;
     if (s.session_id === currentSession) li.classList.add("active");
+    if (s.pinned) li.classList.add("pinned");
     const nameSpan = document.createElement("span");
     nameSpan.className = "session-name";
     nameSpan.textContent = s.name;
     nameSpan.addEventListener("click", () => selectSession(s.session_id));
-    li.appendChild(nameSpan);
+    const actions = document.createElement("span");
+    actions.className = "sess-actions";
+    const pin = document.createElement("button");
+    pin.className = "session-pin" + (s.pinned ? " pinned" : "");
+    pin.title = "Pin / unpin";
+    pin.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>';
+    pin.addEventListener("click", (e) => {
+      e.stopPropagation();
+      api("POST", `/api/sessions/${s.session_id}/pin`, { pinned: !s.pinned }).then(() => loadSessions(currentSession));
+    });
     const del = document.createElement("button");
     del.className = "session-del";
     del.title = "Delete chat";
-    del.textContent = "🗑";
+    del.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
     del.addEventListener("click", (e) => {
       e.stopPropagation();
       deleteSession(s.session_id);
     });
-    li.appendChild(del);
-    list.appendChild(li);
-  });
+    actions.appendChild(pin);
+    actions.appendChild(del);
+    li.appendChild(nameSpan);
+    li.appendChild(actions);
+    return li;
+  };
+
+  const addSection = (title, items) => {
+    if (!items.length) return;
+    const head = document.createElement("li");
+    head.className = "session-section";
+    head.textContent = title;
+    list.appendChild(head);
+    items.forEach((s) => list.appendChild(buildItem(s)));
+  };
+
+  addSection("Pinned chats", pinned);
+  addSection("Chats", others);
   if (selectId) currentSession = selectId;
   if (!currentSession && sessions.length) currentSession = sessions[0].session_id;
   highlightActiveSession();
   syncSettingsToggle();
-  // Show the left session rail only when at least one session exists.
-  $("#session-rail").classList.toggle("hidden", sessions.length === 0);
+  // Keep the rail visible whenever sessions exist at all (so search stays
+  // usable even when a query matches nothing). Only hide it on the unfiltered
+  // view when there are genuinely no sessions.
+  $("#session-rail").classList.toggle("hidden", totalSessionCount === 0);
 }
 
 function highlightActiveSession() {
-  document.querySelectorAll("#session-list li").forEach((li) => {
+  $$("#session-list li").forEach((li) => {
     li.classList.toggle("active", li.dataset.id === currentSession);
   });
 }
@@ -209,7 +298,7 @@ async function loadHistory() {
     return;
   }
   $("#empty-state").classList.add("hidden");
-  msgs.forEach((m) => renderHistoryEvent(normalizeHistoryEntry(m)));
+  msgs.forEach((m, idx) => renderHistoryEvent(normalizeHistoryEntry(m), idx));
 }
 
 // Map a persisted history entry (new `type`-based or legacy `role`-based)
@@ -223,14 +312,19 @@ function normalizeHistoryEntry(m) {
 }
 
 // Render a single history event with the appropriate UI for its type.
-function renderHistoryEvent(e) {
+// `hidx` is the entry's index in the persisted history (used for feedback).
+function renderHistoryEvent(e, hidx = null) {
   if (!e) return;
   switch (e.type) {
     case "user":
       addMsg("user", e.content);
       break;
     case "text":
-      addMsg("assistant", e.content, true);
+      addMsg("assistant", e.content, true, hidx, {
+        versions: e.versions || [],
+        regenerated: !!e.regenerated,
+        version_index: typeof e.version_index === "number" ? e.version_index : (e.versions ? e.versions.length : 0),
+      });
       break;
     case "plan":
       addPlan(e.content);
@@ -309,8 +403,21 @@ function connectWs() {
     } catch {
       return;
     }
-    // DEBUG: log every event received over the socket.
-    console.log("[ws] recv", data.type, data);
+    // If this turn is a regeneration, target the existing assistant bubble so
+    // the new response replaces it in place (no extra message bubble). Capture
+    // the version list BEFORE finalizeAssistant runs so it can render the < > nav.
+    if (data._action === "regenerate" && data._target != null) {
+      let t = document.querySelector(`.msg[data-hidx="${data._target}"]`);
+      if (!t || !t.classList.contains("assistant")) {
+        // Streamed messages have no hidx; fall back to the last assistant bubble.
+        t = [...document.querySelectorAll('#messages .msg.assistant:not(.plan)')].pop() || null;
+      }
+      regenTargetEl = t && t.classList.contains("assistant") ? t : null;
+      if (regenTargetEl) {
+        regenTargetEl._versions = Array.isArray(data.versions) ? data.versions.slice() : [];
+        regenTargetEl._vIndex = typeof data.version_index === "number" ? data.version_index : regenTargetEl._versions.length;
+      }
+    }
     if (data.type === "error") {
       if (data.kind === "rate_limit") {
         showRateLimit(data);
@@ -318,9 +425,6 @@ function connectWs() {
         addMsg("system", "Error: " + data.error);
       }
     } else if (data.type === "plan") {
-      // The plan was streamed as text first; replace that transient bubble
-      // (the last assistant message that isn't the thinking box) with the
-      // structured plan block.
       const msgs = $("#messages");
       let last = msgs.lastElementChild;
       while (last && (!last.classList.contains("assistant") || last.id === "thinking-box")) {
@@ -331,10 +435,23 @@ function connectWs() {
       addPlan(data.plan);
     } else if (data.type === "done") {
       finalizeAssistant();
+      setStreaming(false);
+    } else if (data.type === "stopped") {
+      finalizeAssistant();
+      setStreaming(false);
+      showToast("Generation stopped", "info");
     } else {
       handleEvent(data);
     }
   };
+  ws.onclose = () => setStreaming(false);
+}
+
+function setStreaming(on) {
+  state.streaming = on;
+  state.canStop = on;
+  $("#stop").classList.toggle("hidden", !on);
+  $("#send").classList.toggle("hidden", on);
 }
 
 function handleEvent(evt) {
@@ -344,8 +461,7 @@ function handleEvent(evt) {
   } else if (type === "thinking") {
     appendThinking(evt.delta || "");
   } else if (type === "tool_call") {
-    const calls = evt.calls || [];
-    calls.forEach((c) => $("#messages").appendChild(buildToolCallCard(c)));
+    (evt.calls || []).forEach((c) => $("#messages").appendChild(buildToolCallCard(c)));
   } else if (type === "tool_result") {
     $("#messages").appendChild(buildToolResultCard(evt));
   } else if (type === "usage") {
@@ -367,7 +483,6 @@ function showRateLimit(data) {
   setComposerDisabled(true);
   addMsg("system", `⚠ Rate limit reached for ${who}.`);
 }
-
 function setComposerDisabled(disabled) {
   const wrap = document.querySelector(".composer");
   const input = $("#input");
@@ -376,16 +491,17 @@ function setComposerDisabled(disabled) {
   if (input) input.disabled = disabled;
   if (send) send.disabled = disabled;
 }
-
 function clearRateLimit() {
   $("#rate-limit-banner").classList.add("hidden");
   setComposerDisabled(false);
 }
 
 // ---- Messages ----
-function addMsg(role, html, asMarkdown = false) {
+function addMsg(role, html, asMarkdown = false, hidx = null, meta = null) {
   const wrap = document.createElement("div");
   wrap.className = "msg " + role;
+  wrap.dataset.msgId = String(++msgCounter);
+  if (hidx !== null && hidx !== undefined) wrap.dataset.hidx = String(hidx);
   const label = document.createElement("div");
   label.className = "role-label";
   label.textContent = role === "user" ? "You" : role === "assistant" ? "ai_runtime" : role === "tool" ? "Tool" : "System";
@@ -396,14 +512,87 @@ function addMsg(role, html, asMarkdown = false) {
   if (asMarkdown) bubble.innerHTML = renderMarkdown(html);
   else bubble.textContent = html;
   bubbleWrap.appendChild(bubble);
-  // Copy button (double-square icon) on assistant messages — sits inside the bubble.
   if (role === "assistant") {
+    // Version state for regenerate (multiple regenerations allowed).
+    const versions = (meta && meta.versions) ? meta.versions.slice() : [];
+    const regenerated = !!(meta && meta.regenerated);
+    const vIndex = (meta && typeof meta.version_index === "number") ? meta.version_index : versions.length;
+    wrap.dataset.regenerated = String(regenerated);
+    wrap._versions = versions;
+    wrap._vIndex = vIndex;
+
     const copy = document.createElement("button");
     copy.className = "copy-btn";
     copy.title = "Copy message";
-    copy.innerHTML = "⧉"; // double-square copy glyph
+    copy.innerHTML = "⧉";
     copy.addEventListener("click", () => copyMessage(bubble, copy));
     bubbleWrap.appendChild(copy);
+
+    // Action groups: feedback on the LEFT, retry + version nav on the RIGHT.
+    const actionsLeft = document.createElement("div");
+    actionsLeft.className = "msg-actions left";
+    const up = document.createElement("button");
+    up.className = "msg-action";
+    up.title = "Good response";
+    up.textContent = "👍";
+    up.addEventListener("click", () => sendFeedback(wrap.dataset.msgId, "up"));
+    const down = document.createElement("button");
+    down.className = "msg-action";
+    down.title = "Bad response";
+    down.textContent = "👎";
+    down.addEventListener("click", () => sendFeedback(wrap.dataset.msgId, "down"));
+    actionsLeft.appendChild(up);
+    actionsLeft.appendChild(down);
+
+    const actionsRight = document.createElement("div");
+    actionsRight.className = "msg-actions right";
+    const regen = document.createElement("button");
+    regen.className = "msg-action";
+    regen.title = "Regenerate";
+    // Inline SVG so the retry icon always renders (no missing-glyph tofu).
+    regen.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/></svg>';
+    regen.addEventListener("click", () => regenerate(hidx === null ? undefined : Number(hidx)));
+    actionsRight.appendChild(regen);
+
+    bubbleWrap.appendChild(actionsLeft);
+    bubbleWrap.appendChild(actionsRight);
+
+    // Version switcher (< > arrows + count) — only when multiple responses
+    // exist (the current one plus at least one stored version). Placed after
+    // the regenerate button.
+    const total = versions.length + 1;
+    if (total > 1) {
+      const nav = document.createElement("div");
+      nav.className = "version-nav";
+      const prev = document.createElement("button");
+      prev.className = "version-btn";
+      prev.textContent = "‹";
+      prev.title = "Previous response";
+      const count = document.createElement("span");
+      count.className = "version-count";
+      const next = document.createElement("button");
+      next.className = "version-btn";
+      next.textContent = "›";
+      next.title = "Next response";
+      const renderVersion = (idx) => {
+        wrap._vIndex = idx;
+        const v = idx === versions.length ? { content: bubble.dataset.latest || html } : versions[idx];
+        bubble.innerHTML = renderMarkdown(v.content || "");
+        count.textContent = `${idx + 1}/${total}`;
+        prev.disabled = idx === 0;
+        next.disabled = idx === versions.length;
+        prev.classList.toggle("disabled", idx === 0);
+        next.classList.toggle("disabled", idx === versions.length);
+      };
+      bubble.dataset.latest = html;
+      prev.addEventListener("click", () => renderVersion(Math.max(0, wrap._vIndex - 1)));
+      next.addEventListener("click", () => renderVersion(Math.min(versions.length, wrap._vIndex + 1)));
+      renderVersion(vIndex);
+      nav.appendChild(prev);
+      nav.appendChild(count);
+      nav.appendChild(next);
+      actionsRight.appendChild(nav);
+    }
   }
   wrap.appendChild(label);
   wrap.appendChild(bubbleWrap);
@@ -412,12 +601,22 @@ function addMsg(role, html, asMarkdown = false) {
   return wrap;
 }
 
+async function sendFeedback(msgId, feedback) {
+  if (!currentSession) return;
+  const el = document.querySelector(`.msg[data-msg-id="${msgId}"]`);
+  // Prefer the persisted history index (data-hidx); fall back to msg counter.
+  const index = el && el.dataset.hidx !== undefined ? Number(el.dataset.hidx) : Number(msgId) - 1;
+  try {
+    await api("POST", `/api/sessions/${currentSession}/feedback`, { index, feedback });
+    showToast("Thanks for the feedback", "info");
+  } catch {}
+}
+
 async function copyMessage(bubble, btn) {
   const text = bubble.innerText || bubble.textContent || "";
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    // Fallback for non-secure contexts.
     const ta = document.createElement("textarea");
     ta.value = text;
     document.body.appendChild(ta);
@@ -437,21 +636,91 @@ async function copyMessage(bubble, btn) {
 function appendAssistant(text) {
   hideEmpty();
   if (!assistantEl) {
-    assistantEl = addMsg("assistant", "", true);
+    // When regenerating, update the SAME bubble in place (no new message).
+    if (regenTargetEl && regenTargetEl.isConnected) {
+      assistantEl = regenTargetEl;
+      // Reset version nav if present (will be re-added on finalize if needed).
+      const oldNav = assistantEl.querySelector(".version-nav");
+      if (oldNav) oldNav.remove();
+      assistantEl.dataset.regenerated = "false";
+    } else {
+      assistantEl = addMsg("assistant", "", true);
+    }
     assistantText = "";
   }
   assistantText += text;
   const bubble = assistantEl.querySelector(".bubble");
+  bubble.dataset.latest = assistantText;
   bubble.innerHTML = renderMarkdown(assistantText);
   bubble.classList.add("cursor");
-  scrollDown();
+  maybeScroll();
 }
 function finalizeAssistant() {
-  if (assistantEl) {
-    assistantEl.querySelector(".bubble").classList.remove("cursor");
+  // During a regeneration the `completed` event may have already cleared
+  // `assistantEl`; fall back to the regeneration target so we can still
+  // finalize and render the version switcher.
+  const el = assistantEl || (regenTargetEl && regenTargetEl.isConnected ? regenTargetEl : null);
+  if (el) {
+    const bubble = el.querySelector(".bubble");
+    bubble.classList.remove("cursor");
+    if (bubble.textContent.trim().endsWith("…") || bubble.textContent.trim().endsWith("...")) {
+      addContinueButton(el);
+    }
+    // If this was a regeneration, mark the bubble and show the version switcher
+    // (only when multiple responses exist). The regen button stays enabled so
+    // the user can keep regenerating.
+    if (regenTargetEl && el === regenTargetEl) {
+      el.dataset.regenerated = "true";
+      const versions = el._versions || [];
+      const total = versions.length + 1;
+      if (total > 1) {
+        // Remove any existing navigator so we never stack two of them
+        // (e.g. when `completed` and `done` both finalize the turn).
+        const oldNav = el.querySelector(".version-nav");
+        if (oldNav) oldNav.remove();
+        const nav = document.createElement("div");
+        nav.className = "version-nav";
+        const prev = document.createElement("button");
+        prev.className = "version-btn"; prev.textContent = "‹"; prev.title = "Previous response";
+        const count = document.createElement("span");
+        count.className = "version-count";
+        const next = document.createElement("button");
+        next.className = "version-btn"; next.textContent = "›"; next.title = "Next response";
+        const renderVersion = (idx) => {
+          el._vIndex = idx;
+          const v = idx === versions.length ? { content: bubble.dataset.latest || "" } : versions[idx];
+          bubble.innerHTML = renderMarkdown(v.content || "");
+          count.textContent = `${idx + 1}/${total}`;
+          prev.disabled = idx === 0; next.disabled = idx === versions.length;
+          prev.classList.toggle("disabled", idx === 0);
+          next.classList.toggle("disabled", idx === versions.length);
+        };
+        prev.addEventListener("click", () => renderVersion(Math.max(0, (el._vIndex || total - 1) - 1)));
+        next.addEventListener("click", () => renderVersion(Math.min(versions.length, (el._vIndex || total - 1) + 1)));
+        renderVersion(versions.length);
+        nav.appendChild(prev); nav.appendChild(count); nav.appendChild(next);
+        const rightGroup = el.querySelector(".msg-actions.right") || el.querySelector(".bubble-wrap");
+        rightGroup.appendChild(nav);
+      }
+      regenTargetEl = null;
+    }
   }
   assistantEl = null;
   assistantText = "";
+}
+
+function addContinueButton(el) {
+  const actions = el.querySelector(".msg-actions") || (() => {
+    const a = document.createElement("div");
+    a.className = "msg-actions";
+    el.querySelector(".bubble-wrap").appendChild(a);
+    return a;
+  })();
+  const cont = document.createElement("button");
+  cont.className = "msg-action";
+  cont.textContent = "Continue ▸";
+  cont.addEventListener("click", () => doContinue());
+  actions.appendChild(cont);
 }
 
 function appendThinking(text) {
@@ -462,17 +731,17 @@ function appendThinking(text) {
     box.id = "thinking-box";
     $("#messages").appendChild(box);
   }
-  // Render thinking exactly like an assistant message (markdown + bubble).
   const bubble = box.querySelector(".thinking-block");
   bubble.dataset.raw = (bubble.dataset.raw || "") + text;
   bubble.innerHTML = renderMarkdown(bubble.dataset.raw);
-  scrollDown();
+  maybeScroll();
 }
 
 function addPlan(plan) {
   hideEmpty();
   const wrap = document.createElement("div");
   wrap.className = "msg assistant";
+  wrap.dataset.msgId = String(++msgCounter);
   const label = document.createElement("div");
   label.className = "role-label";
   label.textContent = "Plan";
@@ -480,20 +749,35 @@ function addPlan(plan) {
   bubbleWrap.className = "bubble-wrap";
   const block = document.createElement("div");
   block.className = "plan-block";
-  // Render as markdown so it matches the streamed bubble exactly.
   block.innerHTML = renderMarkdown(plan);
   bubbleWrap.appendChild(block);
-  // Copy button for the plan block.
   const copy = document.createElement("button");
   copy.className = "copy-btn";
   copy.title = "Copy plan";
   copy.innerHTML = "⧉";
   copy.addEventListener("click", () => copyMessage(block, copy));
   bubbleWrap.appendChild(copy);
+  // Approve & execute (Phase 5).
+  const actions = document.createElement("div");
+  actions.className = "msg-actions";
+  const exec = document.createElement("button");
+  exec.className = "msg-action primary";
+  exec.textContent = "✓ Approve & Run";
+  exec.addEventListener("click", () => executePlan(plan));
+  actions.appendChild(exec);
+  bubbleWrap.appendChild(actions);
   wrap.appendChild(label);
   wrap.appendChild(bubbleWrap);
   $("#messages").appendChild(wrap);
   scrollDown();
+}
+
+async function executePlan(plan) {
+  showToast("Executing plan…", "info");
+  await setMode("chat");
+  $("#input").value = "Execute this plan:\n\n" + plan;
+  autoResize();
+  send();
 }
 
 function addUsageMsg(u) {
@@ -502,6 +786,51 @@ function addUsageMsg(u) {
     `tokens — prompt: ${u.prompt_tokens ?? "?"} · completion: ${u.completion_tokens ?? "?"} · total: ${u.total_tokens ?? "?"}`
   );
 }
+
+// ---- Artifacts (Phase 3) ----
+function openArtifact(title, html, lang) {
+  const panel = $("#artifact-panel");
+  const body = $("#artifact-body");
+  panel.classList.remove("hidden");
+  body.innerHTML = "";
+  const head = document.createElement("div");
+  head.className = "artifact-title";
+  head.textContent = title || (lang ? lang.toUpperCase() : "Artifact");
+  body.appendChild(head);
+  const content = document.createElement("div");
+  content.className = "artifact-content";
+  if (lang === "html" || lang === "svg") {
+    const iframe = document.createElement("iframe");
+    iframe.className = "artifact-iframe";
+    iframe.srcdoc = html;
+    content.appendChild(iframe);
+  } else {
+    content.innerHTML = html;
+    content.querySelectorAll("pre code").forEach((b) => { if (window.hljs) hljs.highlightElement(b); });
+  }
+  body.appendChild(content);
+}
+
+// ---- Scroll handling (Phase 1) ----
+function scrollDown() {
+  const m = $("#messages");
+  m.scrollTop = m.scrollHeight;
+}
+function maybeScroll() {
+  const m = $("#messages");
+  const nearBottom = m.scrollHeight - m.scrollTop - m.clientHeight < 120;
+  if (nearBottom) m.scrollTop = m.scrollHeight;
+}
+function onMessagesScroll() {
+  const m = $("#messages");
+  const nearBottom = m.scrollHeight - m.scrollTop - m.clientHeight < 120;
+  $("#scroll-bottom").classList.toggle("hidden", nearBottom);
+}
+$("#messages").addEventListener("scroll", onMessagesScroll);
+$("#scroll-bottom").addEventListener("click", () => {
+  scrollDown();
+  $("#scroll-bottom").classList.add("hidden");
+});
 
 // ---- Collapsible container (thinking / tool call / tool result) ----
 function makeCollapsible(titleNode, bodyNode, collapsed = true) {
@@ -636,16 +965,10 @@ function buildToolResultCard(evt) {
   return wrap;
 }
 
-function scrollDown() {
-  const m = $("#messages");
-  m.scrollTop = m.scrollHeight;
-}
-
-// ---- Send ----
+// ---- Send / stream ----
 async function send() {
   const text = $("#input").value.trim();
   if (!text) return;
-  // Create the session lazily — only once we actually have a message to send.
   if (!currentSession) {
     await newSession();
   }
@@ -653,7 +976,6 @@ async function send() {
   autoResize();
   hideEmpty();
 
-  // Slash commands.
   if (text.startsWith("/")) {
     const [cmd] = text.slice(1).split(" ");
     const res = await api("POST", `/api/commands/${cmd}`, { session_id: currentSession });
@@ -665,27 +987,61 @@ async function send() {
   addMsg("user", text);
   await maybeNameSession(text);
   clearRateLimit();
+  const atts = attachments.slice();
+  attachments = [];
+  renderAttachments();
+  streamMessage(text, mode, "send", atts);
+}
 
-  // Both chat and plan stream over the WebSocket so effort / thinking /
-  // streaming controls behave identically. Plan mode ends with a `plan` event.
+function streamMessage(text, mode, action, atts = []) {
+  const payload = { action, message: text, mode, reasoning_effort: currentEffort() };
+  if (atts && atts.length) payload.attachments = atts;
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ message: text, mode }));
+    setStreaming(true);
+    ws.send(JSON.stringify(payload));
   } else if (ws && ws.readyState === WebSocket.CONNECTING) {
-    // Wait briefly for the freshly opened socket, then stream.
-    try {
-      await waitForWsOpen();
-      ws.send(JSON.stringify({ message: text, mode }));
-    } catch {
-      await fallbackChat(text, mode);
-    }
+    waitForWsOpen().then(() => {
+      setStreaming(true);
+      ws.send(JSON.stringify(payload));
+    }).catch(() => fallbackChat(text, mode, atts));
   } else {
-    await fallbackChat(text, mode);
+    fallbackChat(text, mode, atts);
   }
 }
 
-async function fallbackChat(text, mode) {
+async function regenerate(targetHidx = null) {
+  if (!currentSession) return;
+  // Resolve the target bubble. Streamed messages have no hidx, so fall back
+  // to the last assistant bubble in the DOM.
+  let targetEl = null;
+  if (targetHidx !== null) {
+    targetEl = document.querySelector(`.msg[data-hidx="${targetHidx}"]`);
+  } else {
+    targetEl = [...document.querySelectorAll('#messages .msg.assistant:not(.plan)')].pop() || null;
+  }
+  // Target the existing bubble so streaming updates it in place (no new bubble).
+  regenTargetEl = targetEl && targetEl.classList.contains("assistant") ? targetEl : null;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    setStreaming(true);
+    const payload = { action: "regenerate", mode: currentMode(), reasoning_effort: currentEffort() };
+    if (targetHidx !== null) payload.target = targetHidx;
+    ws.send(JSON.stringify(payload));
+  } else {
+    showToast("Connect to a session to regenerate", "error");
+  }
+}
+
+async function doContinue() {
+  if (!currentSession) return;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    setStreaming(true);
+    ws.send(JSON.stringify({ action: "continue", mode: currentMode(), reasoning_effort: currentEffort() }));
+  }
+}
+
+async function fallbackChat(text, mode, atts = []) {
   try {
-    const res = await api("POST", "/api/chat", { session_id: currentSession, message: text, mode });
+    const res = await api("POST", "/api/chat", { session_id: currentSession, message: text, mode, attachments: atts });
     if (mode === "plan") addPlan(res.plan);
     else addMsg("assistant", res.content, true);
   } catch (e) {
@@ -773,16 +1129,10 @@ function autoResize() {
 // ---- Wire up ----
 $("#send").addEventListener("click", send);
 $("#input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    send();
-  }
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 });
 $("#input").addEventListener("input", autoResize);
-$("#new-chat-rail").addEventListener("click", () => {
-  // Start a fresh (unsaved) conversation — no backend session is created
-  // until the first message is actually sent. Reset any buffered settings
-  // so the new chat starts from defaults (the user can re-pick them).
+const startNewChat = () => {
   currentSession = null;
   pendingSettings = { mode: "chat", reasoning_effort: null, thinking_enabled: false };
   if (ws) ws.close();
@@ -791,12 +1141,13 @@ $("#new-chat-rail").addEventListener("click", () => {
   highlightActiveSession();
   syncModeToggle();
   syncSettingsToggle();
-});
+};
+$("#new-chat-nav").addEventListener("click", startNewChat);
 $("#mode-toggle").addEventListener("click", () => {
   const next = currentMode() === "plan" ? "chat" : "plan";
   setMode(next);
 });
-document.querySelectorAll(".effort-btn").forEach((b) =>
+$$(".effort-btn").forEach((b) =>
   b.addEventListener("click", () => {
     const effort = b.dataset.effort;
     const next = currentEffort() === effort ? null : effort;
@@ -806,7 +1157,7 @@ document.querySelectorAll(".effort-btn").forEach((b) =>
 $("#thinking-toggle").addEventListener("click", () => {
   setSessionSettings({ thinking_enabled: !currentThinking() });
 });
-document.querySelectorAll(".chip").forEach((c) =>
+$$(".chip").forEach((c) =>
   c.addEventListener("click", () => {
     $("#input").value = c.textContent;
     autoResize();
@@ -815,10 +1166,7 @@ document.querySelectorAll(".chip").forEach((c) =>
 );
 $("#project-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  await api("POST", "/api/projects", {
-    root: $("#proj-root").value,
-    name: $("#proj-name").value || undefined,
-  });
+  await api("POST", "/api/projects", { root: $("#proj-root").value, name: $("#proj-name").value || undefined });
   await loadProjects();
 });
 $("#submit-task").addEventListener("click", async () => {
@@ -845,21 +1193,26 @@ $("#btn-undo").addEventListener("click", async () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_id: currentSession }),
   });
-  addMsg("system", res.ok ? "Restored last checkpoint." : "No checkpoint to restore.");
+  showToast(res.ok ? "Restored last checkpoint." : "No checkpoint to restore.", res.ok ? "info" : "error");
+});
+
+// Stop generation (Phase 1).
+$("#stop").addEventListener("click", () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ action: "stop" }));
+    setStreaming(false);
+  }
 });
 
 // Rate-limit banner actions.
 $("#rl-change-provider").addEventListener("click", () => {
-  document.querySelectorAll(".nav-btn").forEach((x) => x.classList.remove("active"));
-  document.querySelectorAll(".panel").forEach((x) => x.classList.remove("active"));
+  $$(".nav-btn").forEach((x) => x.classList.remove("active"));
+  $$(".panel").forEach((x) => x.classList.remove("active"));
   document.querySelector('.nav-btn[data-panel="provider"]').classList.add("active");
   $("#panel-provider").classList.add("active");
   loadProvider();
 });
-$("#rl-retry").addEventListener("click", () => {
-  clearRateLimit();
-  $("#input").focus();
-});
+$("#rl-retry").addEventListener("click", () => { clearRateLimit(); $("#input").focus(); });
 
 // Provider switch form.
 $("#provider-form").addEventListener("submit", async (e) => {
@@ -886,20 +1239,111 @@ $("#provider-form").addEventListener("submit", async (e) => {
   }
 });
 
+// Integrations (Phase 5).
+$("#mcp-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!currentSession) { showToast("Open a chat first", "error"); return; }
+  const msg = $("#mcp-msg");
+  msg.className = "provider-msg";
+  msg.textContent = "Connecting…";
+  try {
+    const res = await api("POST", "/api/mcp/connect", {
+      session_id: currentSession,
+      command: $("#mcp-command").value,
+      args: $("#mcp-args").value.split(/\s+/).filter(Boolean),
+    });
+    msg.className = "provider-msg ok";
+    msg.textContent = "Connected: " + (res.tools || []).join(", ");
+  } catch (err) {
+    msg.className = "provider-msg err";
+    msg.textContent = "Failed: " + err.message;
+  }
+});
+$("#subagent-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!currentSession) { showToast("Open a chat first", "error"); return; }
+  const msg = $("#subagent-msg");
+  msg.className = "provider-msg";
+  msg.textContent = "Adding…";
+  try {
+    await api("POST", "/api/subagents", {
+      session_id: currentSession,
+      name: $("#sub-name").value,
+      task_template: $("#sub-task").value || "{task}",
+    });
+    msg.className = "provider-msg ok";
+    msg.textContent = "Sub-agent added.";
+  } catch (err) {
+    msg.className = "provider-msg err";
+    msg.textContent = "Failed: " + err.message;
+  }
+});
+
+// Session search (Phase 4).
+// Search chats by name AND message history (backend searches both).
+let _searchTimer = null;
+$("#session-search").addEventListener("input", (e) => {
+  const q = e.target.value.trim();
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => loadSessions(currentSession, q), 150);
+});
+
+// Export (Phase 4).
+$("#export-btn").addEventListener("click", () => {
+  if (!currentSession) return;
+  window.open(`/api/sessions/${currentSession}/export?format=markdown`, "_blank");
+});
+
+// Artifact close.
+$("#artifact-close").addEventListener("click", () => $("#artifact-panel").classList.add("hidden"));
+
+// Open a fenced code block in the artifact panel (event delegation, since the
+// buttons are injected via innerHTML and lose their own listeners).
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".artifact-open-btn");
+  if (!btn) return;
+  const lang = btn.dataset.lang || "";
+  const code = btn.dataset.code || "";
+  openArtifact(lang ? lang.toUpperCase() : "Code", code, lang);
+});
+
+// ---- Attachments (Phase 2) ----
+let attachments = [];
+function renderAttachments() {
+  const box = $("#attachments");
+  box.innerHTML = "";
+  if (!attachments.length) { box.classList.add("hidden"); return; }
+  box.classList.remove("hidden");
+  attachments.forEach((a, i) => {
+    const chip = document.createElement("div");
+    chip.className = "attach-chip";
+    chip.textContent = "📎 " + a.name;
+    const x = document.createElement("button");
+    x.textContent = "✕";
+    x.addEventListener("click", () => { attachments.splice(i, 1); renderAttachments(); });
+    chip.appendChild(x);
+    box.appendChild(chip);
+  });
+}
+$("#attach-btn").addEventListener("click", () => $("#file-input").click());
+$("#file-input").addEventListener("change", (e) => {
+  for (const f of e.target.files) attachments.push({ name: f.name, size: f.size });
+  renderAttachments();
+  e.target.value = "";
+});
+
 // ---- Theme (light / dark) ----
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   const btn = $("#theme-toggle");
   if (btn) btn.textContent = theme === "light" ? "☀️" : "🌙";
-  try {
-    localStorage.setItem("ai-runtime-theme", theme);
-  } catch {}
+  const sel = $("#set-theme");
+  if (sel) sel.value = theme;
+  try { localStorage.setItem("ai-runtime-theme", theme); } catch {}
 }
 function initTheme() {
   let theme = "dark";
-  try {
-    theme = localStorage.getItem("ai-runtime-theme") || "dark";
-  } catch {}
+  try { theme = localStorage.getItem("ai-runtime-theme") || "dark"; } catch {}
   applyTheme(theme);
 }
 $("#theme-toggle").addEventListener("click", () => {
@@ -907,13 +1351,88 @@ $("#theme-toggle").addEventListener("click", () => {
   applyTheme(next);
 });
 
+// ---- Settings (Phase 6) ----
+function applyFontSize(px) {
+  state.fontSize = px;
+  document.documentElement.style.setProperty("--font-size", px + "px");
+  try { localStorage.setItem("ai-runtime-font", String(px)); } catch {}
+}
+function initSettings() {
+  let fs = 15;
+  try { fs = Number(localStorage.getItem("ai-runtime-font") || 15); } catch {}
+  applyFontSize(fs);
+  const fsel = $("#set-font");
+  if (fsel) fsel.value = String(fs);
+  const msel = $("#set-mode");
+  if (msel) msel.value = pendingSettings.mode;
+  const esel = $("#set-effort");
+  if (esel) esel.value = pendingSettings.reasoning_effort || "";
+  const tchk = $("#set-thinking");
+  if (tchk) tchk.checked = pendingSettings.thinking_enabled;
+}
+$("#set-theme").addEventListener("change", (e) => applyTheme(e.target.value));
+$("#set-font").addEventListener("change", (e) => applyFontSize(Number(e.target.value)));
+$("#set-mode").addEventListener("change", (e) => { pendingSettings.mode = e.target.value; syncModeToggle(); });
+$("#set-effort").addEventListener("change", (e) => { pendingSettings.reasoning_effort = e.target.value || null; syncSettingsToggle(); });
+$("#set-thinking").addEventListener("change", (e) => { pendingSettings.thinking_enabled = e.target.checked; syncSettingsToggle(); });
+
+// ---- Command palette (Phase 6) ----
+const PALETTE_COMMANDS = [
+  { label: "New chat", run: () => startNewChat() },
+  { label: "Toggle theme", run: () => $("#theme-toggle").click() },
+  { label: "Chat mode", run: () => setMode("chat") },
+  { label: "Plan mode", run: () => setMode("plan") },
+  { label: "Toggle thinking", run: () => setSessionSettings({ thinking_enabled: !currentThinking() }) },
+  { label: "Export conversation", run: () => $("#export-btn").click() },
+  { label: "Clear context (/clear)", run: () => runSlash("clear") },
+  { label: "Compact context (/compact)", run: () => runSlash("compact") },
+];
+async function runSlash(name) {
+  if (!currentSession) await newSession();
+  try {
+    const res = await api("POST", `/api/commands/${name}`, { session_id: currentSession });
+    showToast(res.prompt || (name + " done"), "info");
+    if (name === "clear") { $("#messages").innerHTML = ""; $("#empty-state").classList.remove("hidden"); }
+  } catch (e) { showToast("Error: " + e.message, "error"); }
+}
+function openPalette() {
+  const p = $("#palette");
+  p.classList.remove("hidden");
+  $("#palette-input").value = "";
+  renderPalette("");
+  $("#palette-input").focus();
+}
+function renderPalette(q) {
+  const list = $("#palette-list");
+  list.innerHTML = "";
+  PALETTE_COMMANDS.filter((c) => c.label.toLowerCase().includes(q.toLowerCase())).forEach((c) => {
+    const li = document.createElement("li");
+    li.textContent = c.label;
+    li.addEventListener("click", () => { c.run(); closePalette(); });
+    list.appendChild(li);
+  });
+}
+function closePalette() { $("#palette").classList.add("hidden"); }
+$("#palette-input").addEventListener("input", (e) => renderPalette(e.target.value));
+$("#palette").addEventListener("click", (e) => { if (e.target.id === "palette") closePalette(); });
+
+// ---- Keyboard shortcuts (Phase 6) ----
+document.addEventListener("keydown", (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key === "k") { e.preventDefault(); openPalette(); }
+  else if (mod && e.key === "Enter") { e.preventDefault(); send(); }
+  else if (e.key === "Escape" && !$("#palette").classList.contains("hidden")) closePalette();
+  else if (e.key === "Escape" && state.streaming) { $("#stop").click(); }
+});
+
 // ---- Init ----
 (async () => {
   initTheme();
+  initSettings();
   await loadSessions();
   await loadProjects();
   await loadTasks();
-  await loadPerms();
+  loadPerms();
   await loadProvider();
   connectWs();
   syncModeToggle();
