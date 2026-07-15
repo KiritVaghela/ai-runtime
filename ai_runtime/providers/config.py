@@ -57,7 +57,9 @@ class ProviderConfig(BaseModel):
         api_key = os.getenv(api_key_env, "not-needed")
         model = os.getenv(model_env, default_model)
         # LiteLLM expects the provider prefix for non-openai base URLs.
-        litellm_model = model if "/" in model else f"{provider}/{model}"
+        # litellm_model = model if "/" in model else f"{provider}/{model}"
+        litellm_model = model
+        
         return cls(
             provider=ProviderType(provider),
             model=litellm_model,

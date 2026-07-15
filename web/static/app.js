@@ -1,4 +1,4 @@
-// ai_runtime Web — frontend logic (vanilla JS, no build step).
+// Forge Web — frontend logic (vanilla JS, no build step).
 // Markdown via marked + DOMPurify; syntax highlight via highlight.js; diagrams via mermaid.
 
 const $ = (sel) => document.querySelector(sel);
@@ -76,6 +76,7 @@ let assistantEl = null; // current streaming assistant bubble
 let assistantText = ""; // accumulated raw markdown
 let managerProvider = null; // current backend provider (from /api/provider)
 let managerModel = null;     // current backend model
+let managerCapabilities = {}; // active provider capabilities (from /api/provider)
 // Settings chosen before a session exists (applied when the session is created).
 let pendingSettings = { mode: "chat", reasoning_effort: null, thinking_enabled: false };
 let msgCounter = 0; // assigns data-msg-id to rendered messages
@@ -236,23 +237,49 @@ function currentThinking() {
 }
 
 function syncModeToggle() {
-  const btn = $("#mode-toggle");
-  if (!btn) return;
   const mode = currentMode();
-  btn.dataset.mode = mode;
-  btn.textContent = mode === "plan" ? "Plan" : "Chat";
+  const label = $("#settings-trigger-label");
+  if (label) label.textContent = mode === "plan" ? "Plan" : "Chat";
+  document.querySelectorAll('.menu-item[data-menu="mode"]').forEach((b) => {
+    b.setAttribute("aria-checked", String(b.dataset.value === mode));
+  });
+  syncStatusDisplay();
 }
 
 
 function syncSettingsToggle() {
-  // Effort segmented control.
+  // Effort: "off" maps to null.
   const effort = currentEffort();
-  document.querySelectorAll(".effort-btn").forEach((b) => {
-    b.dataset.active = String(b.dataset.effort === effort);
+  const effortVal = effort || "off";
+  document.querySelectorAll('.menu-item[data-menu="effort"]').forEach((b) => {
+    b.setAttribute("aria-checked", String(b.dataset.value === effortVal));
   });
   // Thinking toggle.
-  const t = $("#thinking-toggle");
-  if (t) t.dataset.on = String(currentThinking());
+  const on = currentThinking();
+  const t = $('.menu-item[data-menu="thinking"]');
+  if (t) t.setAttribute("aria-checked", String(on));
+  syncThinkingAvailability();
+  syncStatusDisplay();
+}
+
+// Disable the thinking toggle when the active provider doesn't support
+// reasoning (e.g. groq). When unsupported, force thinking off.
+function syncThinkingAvailability() {
+  const supported = !!managerCapabilities.reasoning;
+  const t = $('.menu-item[data-menu="thinking"]');
+  if (!t) return;
+  t.classList.toggle("disabled", !supported);
+  t.setAttribute("aria-disabled", String(!supported));
+  const hint = $("#thinking-hint");
+  if (hint) hint.textContent = supported ? "" : "Not supported";
+  if (!supported && currentThinking()) {
+    // Force off so the indicator stays consistent with capability.
+    if (currentSession) {
+      setSessionSettings({ thinking_enabled: false });
+    } else {
+      pendingSettings.thinking_enabled = false;
+    }
+  }
 }
 
 async function setSessionSettings(patch) {
@@ -422,7 +449,7 @@ function connectWs() {
       if (data.kind === "rate_limit") {
         showRateLimit(data);
       } else {
-        addMsg("system", "Error: " + data.error);
+        addMsg("system", "Error: " + (data.error || data.message || "unknown error"));
       }
     } else if (data.type === "plan") {
       const msgs = $("#messages");
@@ -432,6 +459,7 @@ function connectWs() {
       }
       if (last) last.remove();
       finalizeAssistant();
+      setStreaming(false);
       addPlan(data.plan);
     } else if (data.type === "done") {
       finalizeAssistant();
@@ -452,6 +480,20 @@ function setStreaming(on) {
   state.canStop = on;
   $("#stop").classList.toggle("hidden", !on);
   $("#send").classList.toggle("hidden", on);
+  updateSendState();
+}
+
+// Enable the send button only when there is text to send (and the composer
+// is not disabled by a rate limit or an active stream).
+function updateSendState() {
+  if (state.streaming) return;
+  const input = $("#input");
+  const send = $("#send");
+  if (!input || !send) return;
+  const composer = document.querySelector(".composer");
+  const rateLimited = composer && composer.classList.contains("disabled");
+  const hasText = input.value.trim().length > 0;
+  send.disabled = rateLimited || !hasText;
 }
 
 function handleEvent(evt) {
@@ -469,7 +511,7 @@ function handleEvent(evt) {
   } else if (type === "completed") {
     finalizeAssistant();
   } else if (type === "error") {
-    addMsg("system", "Error: " + evt.error);
+    addMsg("system", "Error: " + (evt.error || evt.message || "unknown error"));
   }
 }
 
@@ -486,10 +528,9 @@ function showRateLimit(data) {
 function setComposerDisabled(disabled) {
   const wrap = document.querySelector(".composer");
   const input = $("#input");
-  const send = $("#send");
   if (wrap) wrap.classList.toggle("disabled", disabled);
   if (input) input.disabled = disabled;
-  if (send) send.disabled = disabled;
+  updateSendState();
 }
 function clearRateLimit() {
   $("#rate-limit-banner").classList.add("hidden");
@@ -504,7 +545,7 @@ function addMsg(role, html, asMarkdown = false, hidx = null, meta = null) {
   if (hidx !== null && hidx !== undefined) wrap.dataset.hidx = String(hidx);
   const label = document.createElement("div");
   label.className = "role-label";
-  label.textContent = role === "user" ? "You" : role === "assistant" ? "ai_runtime" : role === "tool" ? "Tool" : "System";
+  label.textContent = role === "user" ? "You" : role === "assistant" ? "Forge" : role === "tool" ? "Tool" : "System";
   const bubbleWrap = document.createElement("div");
   bubbleWrap.className = "bubble-wrap";
   const bubble = document.createElement("div");
@@ -731,9 +772,8 @@ function appendThinking(text) {
     box.id = "thinking-box";
     $("#messages").appendChild(box);
   }
-  const bubble = box.querySelector(".thinking-block");
-  bubble.dataset.raw = (bubble.dataset.raw || "") + text;
-  bubble.innerHTML = renderMarkdown(bubble.dataset.raw);
+  const bubble = box.querySelector(".reasoning-block");
+  bubble.textContent = (bubble.textContent || "") + text;
   maybeScroll();
 }
 
@@ -759,7 +799,7 @@ function addPlan(plan) {
   bubbleWrap.appendChild(copy);
   // Approve & execute (Phase 5).
   const actions = document.createElement("div");
-  actions.className = "msg-actions";
+  actions.className = "msg-actions right";
   const exec = document.createElement("button");
   exec.className = "msg-action primary";
   exec.textContent = "✓ Approve & Run";
@@ -860,31 +900,22 @@ function makeCollapsible(titleNode, bodyNode, collapsed = true) {
   return col;
 }
 
-// ---- Thinking block (collapsible, markdown-rendered) ----
+// ---- Thinking block (separate, text-only reasoning bubble) ----
 function buildThinkingBlock(content) {
   const wrap = document.createElement("div");
   wrap.className = "msg assistant thinking-msg";
   const label = document.createElement("div");
   label.className = "role-label";
-  label.textContent = "Thinking";
-  const bubbleWrap = document.createElement("div");
-  bubbleWrap.className = "bubble-wrap";
+  label.textContent = "Reasoning";
   const bubble = document.createElement("div");
-  bubble.className = "bubble thinking-block";
-  bubble.innerHTML = renderMarkdown(content || "");
+  bubble.className = "reasoning-block";
+  bubble.textContent = content || "";
   const title = document.createElement("span");
   title.className = "collapsible-title";
   title.textContent = "Reasoning";
   const col = makeCollapsible(title, bubble, true);
-  const copy = document.createElement("button");
-  copy.className = "copy-btn";
-  copy.title = "Copy thinking";
-  copy.innerHTML = "⧉";
-  copy.addEventListener("click", () => copyMessage(bubble, copy));
-  bubbleWrap.appendChild(col);
-  bubbleWrap.appendChild(copy);
   wrap.appendChild(label);
-  wrap.appendChild(bubbleWrap);
+  wrap.appendChild(col);
   return wrap;
 }
 
@@ -974,6 +1005,7 @@ async function send() {
   }
   $("#input").value = "";
   autoResize();
+  updateSendState();
   hideEmpty();
 
   if (text.startsWith("/")) {
@@ -1104,6 +1136,7 @@ async function loadProvider() {
     const p = await api("GET", "/api/provider");
     managerProvider = p.provider;
     managerModel = p.model;
+    managerCapabilities = p.capabilities || {};
     const sel = $("#prov-provider");
     sel.innerHTML = "";
     (p.providers || []).forEach((name) => {
@@ -1116,6 +1149,7 @@ async function loadProvider() {
     $("#prov-model").value = p.model || "";
     $("#prov-base").value = p.base_url || "";
     $("#prov-reasoning").value = p.reasoning_effort || "";
+    syncModelDisplay();
   } catch {}
 }
 
@@ -1131,10 +1165,17 @@ $("#send").addEventListener("click", send);
 $("#input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 });
-$("#input").addEventListener("input", autoResize);
+$("#input").addEventListener("input", () => { autoResize(); updateSendState(); });
 const startNewChat = () => {
   currentSession = null;
-  pendingSettings = { mode: "chat", reasoning_effort: null, thinking_enabled: false };
+  // New chats default to medium effort; thinking is on when the provider
+  // advertises reasoning support (e.g. Anthropic), otherwise off.
+  const thinkingSupported = !!managerCapabilities.reasoning;
+  pendingSettings = {
+    mode: "chat",
+    reasoning_effort: "medium",
+    thinking_enabled: thinkingSupported,
+  };
   if (ws) ws.close();
   $("#messages").innerHTML = "";
   $("#empty-state").classList.remove("hidden");
@@ -1143,19 +1184,80 @@ const startNewChat = () => {
   syncSettingsToggle();
 };
 $("#new-chat-nav").addEventListener("click", startNewChat);
-$("#mode-toggle").addEventListener("click", () => {
-  const next = currentMode() === "plan" ? "chat" : "plan";
-  setMode(next);
+// Claude-style settings menu (Mode / Effort / Thinking).
+const settingsTrigger = $("#settings-trigger");
+const settingsMenu = $("#settings-menu");
+function syncModelDisplay() {
+  const name = $("#menu-model-name");
+  const prov = $("#menu-model-provider");
+  if (name) name.textContent = managerModel || "—";
+  if (prov) prov.textContent = managerProvider ? "via " + managerProvider : "";
+  syncStatusDisplay();
+}
+function syncStatusDisplay() {
+  const sllm = $("#status-llm");
+  const smode = $("#status-mode");
+  const se = $("#status-effort");
+  const st = $("#status-thinking");
+  if (sllm) {
+    const prov = managerProvider || "—";
+    const model = managerModel || "—";
+    sllm.textContent = prov + "/" + model;
+  }
+  if (smode) smode.textContent = currentMode() === "plan" ? "Plan" : "Chat";
+  if (se) {
+    const effort = currentEffort();
+    const label = effort ? effort.charAt(0).toUpperCase() + effort.slice(1) : "Off";
+    se.textContent = label;
+    se.dataset.on = String(!!effort);
+  }
+  if (st) {
+    const thinking = currentThinking();
+    st.textContent = thinking ? "On" : "Off";
+    st.dataset.on = String(thinking);
+  }
+}
+function openSettingsMenu() {
+  syncModelDisplay();
+  settingsMenu.classList.remove("hidden");
+  settingsTrigger.setAttribute("aria-expanded", "true");
+}
+function closeSettingsMenu() {
+  settingsMenu.classList.add("hidden");
+  settingsTrigger.setAttribute("aria-expanded", "false");
+}
+settingsTrigger.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (settingsMenu.classList.contains("hidden")) openSettingsMenu();
+  else closeSettingsMenu();
 });
-$$(".effort-btn").forEach((b) =>
+const settingsWrap = document.querySelector(".settings-wrap");
+// Close on outside click / Escape.
+document.addEventListener("click", (e) => {
+  if (!settingsMenu.classList.contains("hidden") && !settingsWrap.contains(e.target)) closeSettingsMenu();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !settingsMenu.classList.contains("hidden")) closeSettingsMenu();
+});
+
+$$('.menu-item[data-menu="mode"]').forEach((b) =>
   b.addEventListener("click", () => {
-    const effort = b.dataset.effort;
-    const next = currentEffort() === effort ? null : effort;
-    setSessionSettings({ reasoning_effort: next });
+    setMode(b.dataset.value);
+    closeSettingsMenu();
   })
 );
-$("#thinking-toggle").addEventListener("click", () => {
+$$('.menu-item[data-menu="effort"]').forEach((b) =>
+  b.addEventListener("click", () => {
+    const val = b.dataset.value;
+    const next = val === "off" ? null : val;
+    setSessionSettings({ reasoning_effort: next });
+    closeSettingsMenu();
+  })
+);
+$('.menu-item[data-menu="thinking"]').addEventListener("click", () => {
+  if (!managerCapabilities.reasoning) return; // unsupported — ignore
   setSessionSettings({ thinking_enabled: !currentThinking() });
+  closeSettingsMenu();
 });
 $$(".chip").forEach((c) =>
   c.addEventListener("click", () => {
@@ -1434,7 +1536,19 @@ document.addEventListener("keydown", (e) => {
   await loadTasks();
   loadPerms();
   await loadProvider();
+  // Apply new-chat defaults for the pre-session state (medium effort,
+  // thinking on when the provider supports reasoning).
+  if (!currentSession) {
+    const thinkingSupported = !!managerCapabilities.reasoning;
+    pendingSettings = {
+      mode: "chat",
+      reasoning_effort: "medium",
+      thinking_enabled: thinkingSupported,
+    };
+  }
   connectWs();
   syncModeToggle();
+  syncSettingsToggle();
+  updateSendState();
   if (currentSession) await loadHistory();
 })();

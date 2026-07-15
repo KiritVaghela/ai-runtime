@@ -6,3 +6,4 @@ class ProviderType(str, Enum):
     GEMINI = "gemini"
     OLLAMA = "ollama"
     GROQ = "groq"
+    OPENROUTER="openrouter"

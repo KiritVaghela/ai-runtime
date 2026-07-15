@@ -24,7 +24,7 @@ logger = logging.getLogger("ai_runtime.web")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-app = FastAPI(title="ai_runtime Web", version="0.1.0")
+app = FastAPI(title="Forge Web", version="0.1.0")
 config = load_config()
 manager = Manager(config)
 
@@ -330,7 +330,7 @@ async def export_session(session_id: str, format: str = "markdown"):
         if t == "user":
             lines += ["**You:**", e.get("content", ""), ""]
         elif t == "text":
-            lines += ["**ai_runtime:**", e.get("content", ""), ""]
+            lines += ["**Forge:**", e.get("content", ""), ""]
         elif t == "plan":
             lines += ["**Plan:**", e.get("content", ""), ""]
         elif t == "thinking":
@@ -395,6 +395,7 @@ async def get_provider():
         "model": manager.config.model,
         "base_url": manager.config.base_url,
         "reasoning_effort": manager.config.reasoning_effort,
+        "capabilities": manager.get_provider_capabilities(),
         "providers": [p.value for p in __import__(
             "ai_runtime.providers.enums", fromlist=["ProviderType"]
         ).ProviderType],

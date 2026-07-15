@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ai_runtime</title>
+  <title>Forge</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <link
     rel="stylesheet"
@@ -16,7 +16,7 @@
     <!-- Sidebar -->
     <aside id="sidebar">
       <div class="sidebar-head">
-        <div class="brand">Agent Runtime<span class="dot">●</span></div>
+        <div class="brand">Forge<span class="dot">●</span></div>
         <button id="theme-toggle" class="theme-toggle" title="Toggle light / dark theme" aria-label="Toggle theme">🌙</button>
       </div>
       <div class="sidebar-section">
@@ -46,7 +46,7 @@
           <div id="messages"></div>
           <button id="scroll-bottom" class="scroll-bottom hidden" title="Scroll to bottom" aria-label="Scroll to bottom">↓</button>
           <div id="empty-state" class="empty">
-            <div class="empty-logo">Agent Runtime</div>
+            <div class="empty-logo">Forge</div>
             <p>How can I help you today?</p>
             <div class="suggestions">
               <button class="chip">Explain a codebase concept</button>
@@ -68,26 +68,79 @@
           <div class="composer-wrap">
             <div id="attachments" class="attachments hidden"></div>
             <div class="composer">
-              <button id="attach-btn" class="attach-btn" title="Attach file" aria-label="Attach file">📎</button>
-              <input id="file-input" type="file" multiple class="hidden" />
-              <textarea id="input" rows="1" placeholder="Message ai_runtime…  (Enter to send, Shift+Enter for newline)"></textarea>
-              <button id="send" aria-label="Send">
-                <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 11l18-8-8 18-2-7-8-3z"/></svg>
-              </button>
-              <button id="stop" class="stop-btn hidden" aria-label="Stop" title="Stop generating">■</button>
+              <div class="composer-col composer-col-attach">
+                <button id="attach-btn" class="attach-btn" title="Attach file" aria-label="Attach file">📎</button>
+                <input id="file-input" type="file" multiple class="hidden" />
+              </div>
+              <div class="composer-col composer-col-main">
+                <textarea id="input" rows="1" placeholder="Message Forge…  (Enter to send, Shift+Enter for newline)"></textarea>
+              </div>
+              <div class="composer-col composer-col-actions">
+                <div class="settings-wrap">
+                  <button id="settings-trigger" class="settings-trigger" aria-haspopup="true" aria-expanded="false" title="Mode, effort & thinking">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+                    <span id="settings-trigger-label">Chat</span>
+                  </button>
+                  <div id="settings-menu" class="settings-menu hidden" role="menu">
+                    <div class="menu-section">
+                      <div class="menu-label">Model</div>
+                      <div class="menu-model" id="menu-model-display">
+                        <span class="menu-model-name" id="menu-model-name">—</span>
+                        <span class="menu-model-provider" id="menu-model-provider"></span>
+                      </div>
+                      <button class="menu-item menu-model-change" id="menu-model-change" disabled title="Model switching coming soon">
+                        <span class="menu-item-label">Change model…</span>
+                      </button>
+                    </div>
+                    <div class="menu-section">
+                      <div class="menu-label">Mode</div>
+                      <button class="menu-item" data-menu="mode" data-value="chat" role="menuitemradio" aria-checked="true">
+                        <span class="menu-item-label">Chat</span>
+                        <svg class="menu-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                      </button>
+                      <button class="menu-item" data-menu="mode" data-value="plan" role="menuitemradio" aria-checked="false">
+                        <span class="menu-item-label">Plan</span>
+                        <svg class="menu-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                      </button>
+                    </div>
+                    <div class="menu-section">
+                      <div class="menu-label">Reasoning effort</div>
+                      <button class="menu-item" data-menu="effort" data-value="low" role="menuitemradio" aria-checked="false">
+                        <span class="menu-item-label">Low</span>
+                        <svg class="menu-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                      </button>
+                      <button class="menu-item" data-menu="effort" data-value="medium" role="menuitemradio" aria-checked="false">
+                        <span class="menu-item-label">Medium</span>
+                        <svg class="menu-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                      </button>
+                      <button class="menu-item" data-menu="effort" data-value="high" role="menuitemradio" aria-checked="false">
+                        <span class="menu-item-label">High</span>
+                        <svg class="menu-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                      </button>
+                    </div>
+                    <div class="menu-section">
+                      <div class="menu-label">Thinking</div>
+                      <button class="menu-item menu-switch" data-menu="thinking" role="menuitemcheckbox" aria-checked="false">
+                        <span class="menu-item-label">Enable thinking</span>
+                        <span class="menu-hint" id="thinking-hint"></span>
+                        <span class="switch"><span class="switch-knob"></span></span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <button id="send" aria-label="Send">
+                  <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 11l18-8-8 18-2-7-8-3z"/></svg>
+                </button>
+                <button id="stop" class="stop-btn hidden" aria-label="Stop" title="Stop generating">■</button>
+              </div>
             </div>
             <div class="composer-hint">
-              <button id="mode-toggle" class="mode-toggle" data-mode="chat">Chat</button>
-              <div class="settings-group" id="effort-group" role="group" aria-label="Reasoning effort">
-                <span class="settings-label">Effort</span>
-                <button class="effort-btn" data-effort="low">Low</button>
-                <button class="effort-btn" data-effort="medium">Med</button>
-                <button class="effort-btn" data-effort="high">High</button>
+              <div class="composer-status" id="composer-status" title="Current provider, model, mode, effort and thinking">
+                <span class="status-item"><span class="status-key">LLM Model:</span> <span class="status-llm" id="status-llm">—</span></span>
+                <span class="status-item"><span class="status-key">Mode:</span> <span class="status-mode" id="status-mode">Chat</span></span>
+                <span class="status-item"><span class="status-key">Effort:</span> <span class="status-effort" id="status-effort">Off</span></span>
+                <span class="status-item"><span class="status-key">Thinking:</span> <span class="status-thinking" id="status-thinking">Off</span></span>
               </div>
-              <button id="thinking-toggle" class="thinking-toggle" data-on="false" title="Enable thinking/reasoning">
-                💡 Thinking
-              </button>
-              <span class="hint-text">Streaming · Markdown · Tools · <code>/compact</code> <code>/clear</code></span>
             </div>
           </div>
         </div>

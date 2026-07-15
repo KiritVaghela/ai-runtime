@@ -33,4 +33,9 @@ def create_default_registry():
         LiteLLMProvider,
     )
 
+    registry.register(
+        ProviderType.OPENROUTER,
+        LiteLLMProvider
+    )
+
     return registry

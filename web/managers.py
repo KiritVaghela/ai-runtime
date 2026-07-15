@@ -420,6 +420,16 @@ class Manager:
             session.agent.tool_executor = new_agent.tool_executor
             self._save_session(session)
 
+    def get_provider_capabilities(self) -> dict:
+        """Return the active provider's advertised capabilities (for the UI)."""
+        try:
+            provider_type = ProviderType(self.config.provider)
+            cls = self.registry.get(provider_type)
+            provider = cls(ProviderConfig(provider=provider_type, model=self.config.model))
+            return provider.info.capabilities.model_dump()
+        except Exception:  # noqa: BLE001
+            return {}
+
     def get_session(self, session_id: str) -> Session | None:
         return self.sessions.get(session_id)
 

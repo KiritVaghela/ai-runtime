@@ -29,9 +29,13 @@ class LiteLLMMapper:
                 for m in request.messages
             ],
             "temperature": request.temperature,
-            "max_tokens": request.max_tokens,
             "stream": request.stream,
         }
+        # Only set max_tokens when the caller explicitly requested a limit.
+        # Leaving it unset lets the provider use its own sane default instead
+        # of litellm's large fallback (which free-tier accounts can't afford).
+        if request.max_tokens is not None:
+            payload["max_tokens"] = request.max_tokens
 
         # Forward capability-gated request fields.
         if capabilities.tools and request.tools:
