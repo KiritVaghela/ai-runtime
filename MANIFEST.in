@@ -1,0 +1,13 @@
+# Only ship the ai_runtime library. Explicitly exclude the web app and
+# other non-library directories so `pip install forge-ai-runtime` never bundles them.
+recursive-exclude web *
+recursive-exclude tests *
+recursive-exclude docs *
+recursive-exclude venv *
+recursive-exclude .ai-runtime *
+recursive-exclude .vscode *
+recursive-exclude copilot-agentic-research.md
+recursive-exclude CHANGELOG.md
+recursive-exclude PUBLISHING.md
+global-exclude *.pyc
+global-exclude __pycache__
