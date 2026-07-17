@@ -39,6 +39,19 @@ _PROVIDER_CAPABILITIES = {
         vision=True,
         reasoning=True,
     ),
+    ProviderType.OPENROUTER: ProviderCapabilities(
+        tools=True,
+        vision=True,
+        structured_output=True,
+    ),
+    ProviderType.GEMINI: ProviderCapabilities(
+        tools=True,
+        vision=True,
+        structured_output=True,
+    ),
+    ProviderType.OLLAMA: ProviderCapabilities(
+        tools=True,
+    ),
 }
 
 class LiteLLMProvider(BaseProvider):

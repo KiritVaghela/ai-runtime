@@ -9,6 +9,7 @@ from ai_runtime.streaming import (
     ToolCallEvent,
     ToolResultEvent,
     UsageEvent,
+    WorkflowEvent,
 )
 
 from .context import ExecutionContext
@@ -65,6 +66,18 @@ class EventProcessor:
         elif isinstance(event, CompletedEvent):
             self.context.finish_reason = (
                 event.finish_reason
+            )
+
+        elif isinstance(event, WorkflowEvent):
+            # Record workflow/step progress on the context for observers.
+            steps = self.context.metadata.setdefault("workflow_steps", [])
+            steps.append(
+                {
+                    "workflow": event.workflow,
+                    "step": event.step,
+                    "phase": event.phase,
+                    "detail": event.detail,
+                }
             )
 
     def process_response(

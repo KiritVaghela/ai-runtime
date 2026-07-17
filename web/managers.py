@@ -17,6 +17,8 @@ from ai_runtime.tools.guarded_executor import GuardedToolExecutor
 from ai_runtime.tools.checkpoints import CheckpointManager
 from ai_runtime.workspace import Project
 from ai_runtime.commands import default_commands, CommandRegistry
+from ai_runtime.conversation import ChatMessage
+from ai_runtime.conversation.enums import MessageRole
 from ai_runtime.execution.background import BackgroundTaskRegistry
 from ai_runtime.execution.hooks import HookRegistry, HookEvent, HookContext, HookResult
 
@@ -48,6 +50,7 @@ class Session:
     pinned: bool = False
     commands: CommandRegistry = field(default_factory=default_commands)
     history: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class Manager:
@@ -201,6 +204,42 @@ class Manager:
                 history=data.get("history", []),
             )
             self.sessions[sid] = session
+            # Rebuild the in-memory conversation from the persisted history so
+            # commands like /context report accurate counts for sessions that
+            # were restored from disk (their memory starts empty otherwise).
+            self._rebuild_conversation_from_history(session)
+
+    def _rebuild_conversation_from_history(self, session: "Session") -> None:
+        """Populate ``agent.memory._conversation`` from ``session.history``.
+
+        Live turns append to both ``history`` and the agent's memory, but
+        sessions restored from disk only carry ``history``. Without this, the
+        memory-backed conversation is empty and context commands report 0
+        messages for pre-existing sessions.
+        """
+        role_map = {
+            "user": MessageRole.USER,
+            "text": MessageRole.ASSISTANT,
+            "assistant": MessageRole.ASSISTANT,
+            "system": MessageRole.SYSTEM,
+            "tool": MessageRole.TOOL,
+        }
+        messages = []
+        for entry in session.history:
+            if not isinstance(entry, dict):
+                continue
+            etype = entry.get("type") or entry.get("role")
+            # ``plan`` entries are UI-only and not part of the LLM conversation.
+            if etype in ("plan",):
+                continue
+            role = role_map.get(etype)
+            if role is None:
+                continue
+            content = entry.get("content")
+            if not content:
+                continue
+            messages.append(ChatMessage(role=role, content=content))
+        session.agent.memory._conversation.messages = messages
 
     # ---- Projects ----
 
@@ -437,6 +476,123 @@ class Manager:
 
     def add_subagent(self, session: Session, spec: SubAgentSpec) -> None:
         session.agent.sub_agents.append(spec)
+
+    # ---- Built-in agents / skills / commands ----
+    #
+    # The web app exposes the framework's built-in presets (v0.8.1) so users
+    # can run a reviewer/explain/tester agent, apply a skill to a session, or
+    # invoke a categorized slash command — all driven from the UI.
+
+    def list_builtin_agents(self) -> list[dict[str, Any]]:
+        """Catalog of built-in agent presets the UI can instantiate."""
+        return [
+            {"key": "reviewer", "name": "Code Reviewer", "description": "Senior reviewer that critiques changes for correctness and risks."},
+            {"key": "explainer", "name": "Explainer", "description": "Explains code and concepts clearly with examples."},
+            {"key": "tester", "name": "Test Writer", "description": "Generates focused, runnable unit tests."},
+            {"key": "summarizer", "name": "Summarizer", "description": "Condenses conversations and transcripts."},
+            {"key": "router", "name": "Router", "description": "Intent dispatcher that routes work to review/explain/test specialists."},
+            {"key": "critic", "name": "Self-Critic", "description": "Reflexion loop that self-reviews generated output before returning."},
+        ]
+
+    def list_builtin_skills(self) -> list[dict[str, Any]]:
+        """Catalog of built-in skills the UI can compose into a session."""
+        from ai_runtime.skills.builtin import default_builtin_skills
+
+        return [
+            {"name": s.name, "description": s.description, "category": getattr(s, "category", "general")}
+            for s in default_builtin_skills()
+        ]
+
+    def list_builtin_commands(self) -> list[dict[str, Any]]:
+        """Catalog of built-in slash commands (categorized)."""
+        from ai_runtime.commands import default_commands
+
+        return [
+            {"name": c.name, "description": c.description, "category": c.category, "args": c.args, "example": c.example}
+            for c in default_commands().list()
+        ]
+
+    def apply_skill(self, session: Session, skill_name: str) -> dict[str, Any]:
+        """Compose a built-in skill into the session's agent system prompt.
+
+        The skill's system prompt is appended to the agent's prompt so the
+        capability is active for the rest of the session.
+        """
+        from ai_runtime.skills.builtin import default_builtin_skills
+
+        skill = next((s for s in default_builtin_skills() if s.name == skill_name), None)
+        if skill is None:
+            raise KeyError(f"Unknown built-in skill: {skill_name}")
+        base = session.agent.system_prompt or ""
+        if skill.system_prompt and skill.system_prompt not in base:
+            session.agent.system_prompt = (base + "\n\n" + skill.system_prompt).strip()
+        # Track applied skills so the UI can show active capabilities.
+        applied = session.metadata.setdefault("skills", [])
+        if skill_name not in applied:
+            applied.append(skill_name)
+        self._save_session(session)
+        return {"ok": True, "skill": skill_name, "active_skills": applied}
+
+    def set_self_review(self, session: Session, enabled: bool) -> dict[str, Any]:
+        """Toggle the agentic self-review (reflexion) pass for a session."""
+        session.runner.self_review = bool(enabled)
+        session.metadata["self_review"] = bool(enabled)
+        self._save_session(session)
+        return {"ok": True, "self_review": bool(enabled)}
+
+    async def run_builtin_agent(self, session: Session, agent_key: str, task: str) -> dict[str, Any]:
+        """Run a built-in agent preset against `task`, returning its output.
+
+        For `router`/`critic` the framework's higher-level agents are used;
+        for the specialist presets a single `AgentRunner` run is performed.
+        """
+        from ai_runtime.agents.builtin import (
+            reviewer_agent,
+            explainer_agent,
+            tester_agent,
+            summarizer_agent,
+            critic_agent,
+            router_agent,
+        )
+
+        provider = session.agent.provider
+        if agent_key == "reviewer":
+            agent = reviewer_agent(provider)
+        elif agent_key == "explainer":
+            agent = explainer_agent(provider)
+        elif agent_key == "tester":
+            agent = tester_agent(provider)
+        elif agent_key == "summarizer":
+            agent = summarizer_agent(provider)
+        elif agent_key == "critic":
+            result = await critic_agent(provider).run(task)
+            return {"agent": agent_key, "output": result.output, "approved": result.approved, "iterations": result.iterations}
+        elif agent_key == "router":
+            result = await router_agent(provider).run(task)
+            return {"agent": agent_key, "output": result.message.content or ""}
+        else:
+            raise KeyError(f"Unknown built-in agent: {agent_key}")
+
+        from ai_runtime.agents import AgentRunner
+
+        resp = await AgentRunner(agent).run(task)
+        return {"agent": agent_key, "output": resp.message.content or ""}
+
+    async def run_builtin_command(self, session: Session, name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Execute a categorized built-in command against the session.
+
+        Commands that need a target (review/explain/test/workflow) render their
+        template with the supplied args and run it through the session's own
+        runner so the result streams into the conversation like a normal turn.
+        """
+        args = args or {}
+        rendered = session.commands.render(name, **args)
+        if rendered is None:
+            raise KeyError(f"Unknown command: {name}")
+        # General commands handled directly by the route; here we run the
+        # agentic ones (review/explain/test/workflow) as a chat turn.
+        response = await session.runner.run(rendered)
+        return {"command": name, "prompt": rendered, "output": response.message.content or ""}
 
     # ---- Permissions ----
 

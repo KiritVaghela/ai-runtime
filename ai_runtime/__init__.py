@@ -9,8 +9,40 @@ from .memory import (
     SemanticMemory,
 )
 from .rag import Document, VectorStore, InMemoryVectorStore, Retriever
-from .skills import Skill, SkillRegistry, ComposedSkills
-from .agents import Agent, AgentRunner
+from .skills import (
+    Skill,
+    SkillRegistry,
+    ComposedSkills,
+    RetrievalSkill,
+    GuardrailSkill,
+    GuardrailOutcome,
+    self_review_skill,
+    explain_code_skill,
+    generate_tests_skill,
+    summarize_skill,
+    no_secrets_guardrail,
+    retrieval_skill,
+    default_builtin_skills,
+)
+from .agents import (
+    Agent,
+    AgentRunner,
+    WorkflowStep,
+    WorkflowAgent,
+    Route,
+    RouterAgent,
+    CriticResult,
+    CriticAgent,
+    reviewer_agent,
+    explainer_agent,
+    tester_agent,
+    summarizer_agent,
+    critic_agent,
+    router_agent,
+    agentic_summarize,
+    make_agentic_compaction_summarizer,
+    make_self_reviewer,
+)
 from .tools import Tool, ToolResult, ToolRegistry, ToolExecutor, FunctionTool
 from .execution.plan import Plan
 from .execution.hooks import HookRegistry, HookEvent, HookContext, HookResult
@@ -37,7 +69,19 @@ from .tools.checkpoints import CheckpointManager, Checkpoint
 from .agents.config_files import load_project_instructions, discover_instructions
 from .server import AgentServer, AgentRequest, AgentResponse
 from .workspace import Project
-from .commands import CommandRegistry, Command, default_commands
+from .commands import (
+    CommandRegistry,
+    Command,
+    default_commands,
+    compact_command,
+    context_command,
+    clear_command,
+    review_command,
+    explain_command,
+    test_command,
+    workflow_command,
+    default_builtin_commands,
+)
 
 __all__ = [
     "AgentRuntime",
@@ -54,10 +98,35 @@ __all__ = [
     "Skill",
     "SkillRegistry",
     "ComposedSkills",
+    "RetrievalSkill",
+    "GuardrailSkill",
+    "GuardrailOutcome",
+    "self_review_skill",
+    "explain_code_skill",
+    "generate_tests_skill",
+    "summarize_skill",
+    "no_secrets_guardrail",
+    "retrieval_skill",
+    "default_builtin_skills",
     "Agent",
     "AgentRunner",
     "SubAgentSpec",
     "SubAgentResult",
+    "WorkflowStep",
+    "WorkflowAgent",
+    "Route",
+    "RouterAgent",
+    "CriticResult",
+    "CriticAgent",
+    "reviewer_agent",
+    "explainer_agent",
+    "tester_agent",
+    "summarizer_agent",
+    "critic_agent",
+    "router_agent",
+    "agentic_summarize",
+    "make_agentic_compaction_summarizer",
+    "make_self_reviewer",
     "Tool",
     "ToolResult",
     "ToolRegistry",
@@ -94,6 +163,14 @@ __all__ = [
     "AgentRequest",
     "AgentResponse",
     "Project",
+    "compact_command",
+    "context_command",
+    "clear_command",
+    "review_command",
+    "explain_command",
+    "test_command",
+    "workflow_command",
+    "default_builtin_commands",
     "CommandRegistry",
     "Command",
     "default_commands",

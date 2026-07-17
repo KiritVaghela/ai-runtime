@@ -17,6 +17,10 @@ class Command:
     description: str
     prompt_template: str | None = None
     run: Callable[[Any], Any] | None = None
+    # Categorization (mirrors the grouped `/` menu of agentic tools):
+    category: str = "general"  # general | review | explain | test | workflow
+    args: list[str] = field(default_factory=list)  # named template args
+    example: str | None = None  # example invocation shown in the UI
 
     def render(self, **kwargs: Any) -> str:
         if self.prompt_template:
@@ -25,6 +29,12 @@ class Command:
             except (KeyError, IndexError):
                 return self.prompt_template
         return self.description
+
+    def with_args(self, **kwargs: Any) -> "Command":
+        """Return a copy of this command bound with the given args."""
+        from dataclasses import replace
+
+        return replace(self, prompt_template=self.render(**kwargs))
 
 
 class CommandRegistry:
@@ -42,21 +52,16 @@ class CommandRegistry:
     def list(self) -> list[Command]:
         return list(self._commands.values())
 
-    def render(self, name: str, **kwargs: Any) -> str | None:
-        cmd = self._commands.get(name)
+    def render(self, command_name: str, **kwargs: Any) -> str | None:
+        cmd = self._commands.get(command_name)
         return cmd.render(**kwargs) if cmd else None
 
 
 # Built-in commands mirroring Copilot/Claude/Cursor slash commands.
 def default_commands() -> CommandRegistry:
+    from .builtin import default_builtin_commands
+
     reg = CommandRegistry()
-    reg.register(
-        Command("compact", "Summarize the conversation to free context", "Please summarize the conversation so far concisely.")
-    )
-    reg.register(
-        Command("context", "Show a token/context breakdown", "List the current context window usage.")
-    )
-    reg.register(
-        Command("clear", "Clear the conversation history", "Clear all messages from the current session.")
-    )
+    for cmd in default_builtin_commands():
+        reg.register(cmd)
     return reg

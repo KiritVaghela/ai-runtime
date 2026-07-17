@@ -756,12 +756,128 @@ async def run_command(name: str, req: dict):
         session.history.clear()
         session.runner.agent.memory._conversation.messages.clear()
         return {"ok": True}
+    if name == "context":
+        # Produce a real context-window breakdown instead of echoing the
+        # prompt. Count messages + estimated tokens and compare against
+        # the session's token budget. Also break messages down by *type*
+        # (system / user / assistant / tool calls / tool results / MCP
+        # results) so the user can see exactly what is consuming context.
+        from ai_runtime.context.window import ContextWindow, estimate_tokens
+        from ai_runtime.mcp.adapter import MCPTool
+
+        conversation = session.runner.agent.memory._conversation
+        window = ContextWindow(conversation=conversation)
+        msgs = conversation.messages
+
+        # Map tool_call_id -> tool name so we can classify tool-result
+        # messages as regular tools vs MCP-backed tools.
+        tool_name_by_call_id: dict[str, str] = {}
+        for m in msgs:
+            if getattr(m.role, "value", None) == "assistant" and getattr(
+                m, "tool_calls", None
+            ):
+                for tc in m.tool_calls:
+                    tool_name_by_call_id[tc.id] = tc.name
+
+        # Collect the set of tool names that are backed by an MCP server.
+        registry = getattr(session.runner.agent, "tool_registry", None)
+        mcp_tool_names: set[str] = set()
+        if registry is not None:
+            for tname, tool in registry._tools.items():
+                if isinstance(tool, MCPTool):
+                    mcp_tool_names.add(tname)
+
+        by_role: dict[str, int] = {}
+        tokens_by_role: dict[str, int] = {}
+        by_type: dict[str, int] = {}
+        tokens_by_type: dict[str, int] = {}
+        for m in msgs:
+            role = getattr(m.role, "value", str(m.role))
+            by_role[role] = by_role.get(role, 0) + 1
+            tok = window.estimator(str(getattr(m, "content", "")))
+            tokens_by_role[role] = tokens_by_role.get(role, 0) + tok
+
+            # Classify the message into a finer-grained type.
+            if role == "system":
+                t = "system"
+            elif role == "user":
+                t = "user"
+            elif role == "assistant":
+                t = "tool_call" if getattr(m, "tool_calls", None) else "assistant"
+            elif role == "tool":
+                name = tool_name_by_call_id.get(getattr(m, "tool_call_id", None))
+                t = "mcp" if (name and name in mcp_tool_names) else "tool"
+            else:
+                t = role
+            by_type[t] = by_type.get(t, 0) + 1
+            tokens_by_type[t] = tokens_by_type.get(t, 0) + tok
+
+        tokens = window.token_count()
+        breakdown = {
+            "messages": len(msgs),
+            "by_role": by_role,
+            "tokens_by_role": tokens_by_role,
+            "by_type": by_type,
+            "tokens_by_type": tokens_by_type,
+            "estimated_tokens": tokens,
+            "max_tokens": window.max_tokens,
+            "over_budget": window.is_over_budget(),
+            "utilization_pct": round(100 * tokens / max(1, window.max_tokens), 1),
+        }
+        return {"command": "context", "breakdown": breakdown}
     if name == "compact":
-        # Trigger compaction via the engine pipeline's CompactionStage.
+        # Trigger compaction via the engine pipeline's CompactionStage and
+        # report the token usage before/after so the user can see how much
+        # space was freed.
+        from ai_runtime.context.window import ContextWindow
+        from ai_runtime.execution.context import ExecutionContext
         from ai_runtime.execution.pipeline.compaction_stage import CompactionStage
 
-        await CompactionStage().execute(session.runner.agent.memory._conversation)
-        return {"ok": True}
+        conversation = session.runner.agent.memory._conversation
+        provider = getattr(session.runner.agent, "provider", None)
+
+        window = ContextWindow(conversation=conversation)
+        before_tokens = window.token_count()
+        messages_before = len(conversation.messages)
+
+        ctx = await CompactionStage().execute(
+            ExecutionContext(provider=provider, conversation=conversation)
+        )
+        # Apply the compacted conversation back to the session so the change
+        # actually persists for subsequent turns.
+        session.runner.agent.memory._conversation = ctx.conversation
+
+        after_tokens = window.token_count()
+        messages_after = len(ctx.conversation.messages)
+        return {
+            "ok": True,
+            "before_tokens": before_tokens,
+            "after_tokens": after_tokens,
+            "max_tokens": window.max_tokens,
+            "messages_before": messages_before,
+            "messages_after": messages_after,
+            "freed_tokens": max(0, before_tokens - after_tokens),
+        }
+    # Agentic commands (review/explain/test/workflow) take free-form text
+    # after the command name; bind it to the command's first template arg
+    # (e.g. `diff` for /review) and run it through the session runner so
+    # the model actually produces a result.
+    cmd = session.commands.get(name)
+    if cmd is None:
+        raise HTTPException(404, f"Unknown command: {name}")
+    arg_text = (req.get("text") or "").strip()
+    if not arg_text and cmd.args:
+        # Fall back to any text the user typed after "/name ".
+        raw = req.get("raw", "")
+        if raw.startswith("/"):
+            arg_text = raw.split(" ", 1)[1] if " " in raw else ""
+    if cmd.args and arg_text:
+        # Bind the free-text to the LAST template arg (the snippet/task);
+        # earlier args get a generic default so placeholders still render.
+        args = {a: "the provided input" for a in cmd.args[:-1]}
+        args[cmd.args[-1]] = arg_text
+        result = await manager.run_builtin_command(session, name, args)
+        return result
     rendered = session.commands.render(name)
     return {"command": name, "prompt": rendered}
 
@@ -793,3 +909,92 @@ async def connect_mcp(req: McpReq):
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "version": "0.1.0"}
+
+
+# ---------------------------------------------------------------------------
+# Built-in agents / skills / commands (v0.8.1)
+# ---------------------------------------------------------------------------
+class BuiltinAgentReq(BaseModel):
+    session_id: str
+    agent: str  # reviewer | explainer | tester | summarizer | router | critic
+    task: str
+
+
+class BuiltinCommandReq(BaseModel):
+    session_id: str
+    name: str
+    args: dict[str, Any] = {}
+
+
+class SkillReq(BaseModel):
+    session_id: str
+    skill: str
+
+
+class SelfReviewReq(BaseModel):
+    session_id: str
+    enabled: bool = True
+
+
+@app.get("/api/builtin/agents")
+async def list_builtin_agents():
+    return {"agents": manager.list_builtin_agents()}
+
+
+@app.get("/api/builtin/skills")
+async def list_builtin_skills():
+    return {"skills": manager.list_builtin_skills()}
+
+
+@app.get("/api/builtin/commands")
+async def list_builtin_commands():
+    return {"commands": manager.list_builtin_commands()}
+
+
+@app.post("/api/builtin/agents/run")
+async def run_builtin_agent(req: BuiltinAgentReq):
+    session = manager.get_session(req.session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    try:
+        result = await manager.run_builtin_agent(session, req.agent, req.task)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Built-in agent run failed")
+        raise HTTPException(500, f"Built-in agent failed: {type(e).__name__}: {e}")
+    return result
+
+
+@app.post("/api/builtin/commands/run")
+async def run_builtin_command(req: BuiltinCommandReq):
+    session = manager.get_session(req.session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    try:
+        result = await manager.run_builtin_command(session, req.name, req.args)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Built-in command run failed")
+        raise HTTPException(500, f"Built-in command failed: {type(e).__name__}: {e}")
+    return result
+
+
+@app.post("/api/builtin/skills/apply")
+async def apply_skill(req: SkillReq):
+    session = manager.get_session(req.session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    try:
+        return manager.apply_skill(session, req.skill)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/api/builtin/self-review")
+async def set_self_review(req: SelfReviewReq):
+    session = manager.get_session(req.session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    return manager.set_self_review(session, req.enabled)

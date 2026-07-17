@@ -591,6 +591,7 @@ body {
 
 /* ---------- Composer ---------- */
 .composer-wrap {
+  position: relative;
   border-top: 1px solid var(--border);
   padding: 0.9rem 1.5rem 1.1rem;
   background: var(--bg);
@@ -1186,6 +1187,12 @@ body { font-size: var(--font-size); }
 #palette-list { list-style: none; margin: 0; padding: 0.4rem; max-height: 50vh; overflow-y: auto; }
 #palette-list li { padding: 0.6rem 0.8rem; border-radius: 8px; cursor: pointer; font-size: 0.88rem; }
 #palette-list li:hover { background: var(--accent-soft); }
+#palette-list .palette-cmd {
+  font-weight: 700;
+  color: var(--accent);
+}
+#palette-list .palette-sep { color: var(--muted); }
+#palette-list .palette-desc { color: var(--muted); }
 
 /* ---------- Settings panel (Phase 6) ---------- */
 .field.checkbox { flex-direction: row; align-items: center; gap: 0.5rem; }
@@ -1200,4 +1207,247 @@ body { font-size: var(--font-size); }
   .msg { padding: 0 0.6rem; }
   .composer-wrap { padding: 0.6rem; }
 }
+
+/* ---------- Built-in agents / skills panels (v0.8.1) ---------- */
+.panel-sub { padding: 0 1.5rem 0.5rem; color: var(--muted); font-size: 0.82rem; margin: 0; }
+.card-title { font-weight: 600; color: var(--fg); margin-bottom: 0.2rem; }
+.card-desc { color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
+.skill-apply {
+  margin-top: 0.5rem;
+  background: var(--accent-soft);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+.skill-apply:hover { border-color: var(--accent); }
+.skill-active { padding: 0.6rem 1.5rem; font-size: 0.8rem; color: var(--muted); }
+.skill-active .chip { margin: 0.2rem 0.2rem 0 0; }
+.agent-result {
+  margin: 0 1.5rem 1.5rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.2rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.agent-meta {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  margin-bottom: 0.5rem;
+}
+
+/* ---------- Inline prompt modal (replaces window.prompt) ---------- */
+.prompt-title { padding: 0.9rem 1rem 0.4rem; font-size: 0.9rem; color: var(--fg); }
+#prompt-input {
+  width: calc(100% - 2rem);
+  margin: 0 1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  padding: 0.6rem 0.7rem;
+  font-size: 0.9rem;
+  outline: none;
+}
+.prompt-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.8rem 1rem; }
+.prompt-actions button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.45rem 1rem;
+  cursor: pointer;
+}
+.prompt-actions #prompt-cancel { background: var(--panel); color: var(--fg); border: 1px solid var(--border); }
+
+/* ---------- Slash-command autocomplete (composer) ---------- */
+.slash-menu {
+  position: absolute;
+  bottom: calc(100% - 0.2rem);
+  left: 1.5rem;
+  right: 1.5rem;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+  z-index: 30;
+  padding: 0.3rem;
+}
+.slash-menu .slash-item {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.3rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.slash-menu .slash-item.active,
+.slash-menu .slash-item:hover { background: var(--accent-soft); }
+.slash-menu .slash-cmd {
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+.slash-menu .slash-sep { color: var(--muted); font-size: 0.8rem; }
+.slash-menu .slash-desc { color: var(--muted); font-size: 0.8rem; }
+.slash-menu .slash-empty { padding: 0.5rem 0.6rem; color: var(--muted); font-size: 0.8rem; }
+
+/* ---- /context breakdown card ---- */
+.ctx-breakdown {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.82rem;
+  /* Left-align the context card inside its system message bubble. */
+  align-self: flex-start;
+  text-align: left;
+  max-width: 100%;
+}
+/* When a system message carries the context breakdown, drop the default
+   centering so the card hugs the left edge like other messages. */
+.msg.system:has(.ctx-breakdown) {
+  align-items: flex-start;
+}
+.ctx-title { font-weight: 600; color: var(--fg); margin-bottom: 0.4rem; }
+.ctx-graph-title {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0.5rem 0 0.35rem;
+}
+.ctx-roles { list-style: none; margin: 0 0 0.4rem; padding: 0; }
+.ctx-roles li { color: var(--muted); padding: 0.1rem 0; }
+.ctx-roles strong { color: var(--fg); }
+.ctx-stats { display: flex; flex-wrap: wrap; gap: 0.8rem; color: var(--muted); }
+.ctx-stats .ctx-over { color: #ff7a7a; }
+.ctx-stats .ctx-ok { color: #7ee787; }
+
+/* Memory-block visualization for /context */
+.ctx-blocks {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  gap: 3px;
+  margin-bottom: 0.5rem;
+}
+.ctx-block {
+  height: 14px;
+  border-radius: 3px;
+  background: var(--border);
+}
+.ctx-block.ctx-user { background: #4f9dff; }
+.ctx-block.ctx-assistant { background: #b07cff; }
+.ctx-block.ctx-free { background: var(--border); opacity: 0.5; }
+.ctx-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.ctx-leg { display: inline-flex; align-items: center; gap: 0.3rem; }
+.ctx-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.ctx-dot.ctx-user { background: #4f9dff; }
+.ctx-dot.ctx-assistant { background: #b07cff; }
+.ctx-dot.ctx-free { background: var(--border); opacity: 0.6; }
+
+/* Per-role message-count bars for /context */
+.ctx-rolebars { margin-bottom: 0.5rem; }
+.ctx-rolegrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem 1rem;
+  align-items: center;
+}
+.ctx-rolecount { font-size: 0.76rem; color: var(--muted); }
+.ctx-user-text { color: #4f9dff; }
+.ctx-asst-text { color: #b07cff; }
+.ctx-rolegrid .ctx-bar {
+  height: 8px;
+  background: var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.ctx-rolegrid .ctx-fill { display: block; height: 100%; border-radius: 5px; }
+.ctx-rolegrid .ctx-fill.ctx-user { background: #4f9dff; }
+.ctx-rolegrid .ctx-fill.ctx-assistant { background: #b07cff; }
+
+/* Deep message-type breakdown for /context */
+.ctx-types { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.5rem; }
+.ctx-typempty { color: var(--muted); font-size: 0.78rem; }
+.ctx-typerow {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr 6rem;
+  gap: 0.5rem;
+  align-items: center;
+}
+.ctx-typelabel { font-size: 0.76rem; font-weight: 600; }
+.ctx-typenum {
+  font-size: 0.74rem;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ctx-typerow .ctx-bar {
+  height: 8px;
+  background: var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.ctx-typerow .ctx-fill { display: block; height: 100%; border-radius: 5px; }
+/* Type colours */
+.ctx-t-system    { color: #9aa0ad; }
+.ctx-t-user      { color: #4f9dff; }
+.ctx-t-assistant { color: #b07cff; }
+.ctx-t-toolcall  { color: #d29922; }
+.ctx-t-tool      { color: #56d364; }
+.ctx-t-mcp       { color: #ff7ab2; }
+.ctx-typerow .ctx-fill.ctx-t-system    { background: #9aa0ad; }
+.ctx-typerow .ctx-fill.ctx-t-user      { background: #4f9dff; }
+.ctx-typerow .ctx-fill.ctx-t-assistant { background: #b07cff; }
+.ctx-typerow .ctx-fill.ctx-t-toolcall  { background: #d29922; }
+.ctx-typerow .ctx-fill.ctx-t-tool      { background: #56d364; }
+.ctx-typerow .ctx-fill.ctx-t-mcp       { background: #ff7ab2; }
+
+/* Before/after token usage for /compact */
+.ctx-compact { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.5rem; }
+.ctx-row { display: flex; align-items: center; gap: 0.5rem; }
+.ctx-label { width: 3.2rem; color: var(--muted); font-size: 0.78rem; }
+.ctx-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+  min-width: 6rem;
+}
+.ctx-fill {
+  display: block;
+  height: 100%;
+  background: #d29922;
+  border-radius: 5px;
+}
+.ctx-fill-after { background: #7ee787; }
+.ctx-num { width: 4.5rem; text-align: right; color: var(--fg); font-variant-numeric: tabular-nums; }
 

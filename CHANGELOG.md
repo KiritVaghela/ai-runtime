@@ -5,6 +5,107 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-07-16
+
+### Added (Web app integration of built-ins)
+- **Built-in agents panel** in the web UI: list and run the `reviewer`,
+  `explainer`, `tester`, `summarizer`, `router`, and `critic` presets.
+  - `GET /api/builtin/agents` — catalog of built-in agent presets.
+  - `POST /api/builtin/agents/run` — run a preset against a task
+    (`{session_id, agent, task}`); `router`/`critic` return their
+    higher-level result shapes.
+- **Built-in skills panel**: compose built-in skills into a session's agent
+  system prompt and track active skills.
+  - `GET /api/builtin/skills` — catalog from `default_builtin_skills()`.
+  - `POST /api/builtin/skills/apply` — `{session_id, skill}`; appends the
+    skill's system prompt and records it in `session.metadata["skills"]`.
+- **Built-in command palette**: invoke categorized commands from the UI.
+  - `GET /api/builtin/commands` — catalog from `default_commands()`.
+  - `POST /api/builtin/commands/run` — `{session_id, name, args}`; renders
+    the command template and runs it through the session runner.
+- **Self-review toggle**: `POST /api/builtin/self-review`
+  (`{session_id, enabled}`) flips `runner.self_review` per session.
+- **Frontend**: new "Agents" and "Skills" nav panels, command palette
+  entries, and CSS for the new cards/results/skill chips.
+- **Tests**: `tests/web/test_web_builtin.py` (13 tests) covering all new
+  endpoints with a fake provider.
+
+## [0.8.1] - 2026-07-16
+
+### Added (Built-in agents, skills, commands + self-agentic wiring)
+- **Built-in agents** (`ai_runtime.agents.builtin`): ready-to-use factories
+  `reviewer_agent`, `explainer_agent`, `tester_agent`, `summarizer_agent`,
+  plus `critic_agent` (Reflexion loop) and `router_agent` (intent router with
+  default review/explain/test routes).
+- **Built-in skills** (`ai_runtime.skills.builtin`): `self_review_skill`,
+  `explain_code_skill`, `generate_tests_skill`, `summarize_skill`,
+  `no_secrets_guardrail` (secret-blocking `GuardrailSkill`), `retrieval_skill`
+  (RAG-backed), and `default_builtin_skills()`.
+- **Built-in commands** (`ai_runtime.commands.builtin`): reusable `Command`
+  factories (`review_command`, `explain_command`, `test_command`,
+  `workflow_command`, `compact_command`, `context_command`, `clear_command`)
+  consumed by `default_commands()`; no behavior change to the `/` menu.
+- **Self-agentic framework wiring**:
+  - `AgentRunner(self_review=True)` applies a `CriticAgent` self-review
+    (reflexion) pass over its own output before returning, in both `run()`
+    and `stream()`.
+  - `CompactionStage` now uses the framework's own `summarizer_agent` as an
+    LLM-backed compaction summarizer when a provider is present (via
+    `make_agentic_compaction_summarizer`), instead of naively dropping turns.
+    `ContextWindow.fit_async()` awaits coroutine summarizers.
+  - `ai_runtime.agents.self_agentic` exposes `agentic_summarize`,
+    `make_agentic_compaction_summarizer`, `make_self_reviewer`.
+- **Tests**: `tests/agents/test_builtin.py` (14 tests) covering built-in
+  factories and the self-agentic wiring.
+
+### Changed
+- `ContextWindow.fit()` now has an async sibling `fit_async()` that awaits
+  coroutine summarizers; `CompactionStage` calls `fit_async()`.
+
+## [0.8.0] - 2026-07-16
+
+### Added (Agentic workflow types)
+- **New agent types** (`ai_runtime.agents.types`):
+  - `WorkflowAgent` — declarative DAG of `WorkflowStep`s executed in dependency
+    order with concurrent layers (bounded by `max_concurrency`); each step's
+    output is exposed to downstream steps via `{step_name}` placeholders.
+    Steps may render a slash `command`, compose a `skill` for their agent,
+    `map_result`, and `max_retries`.
+  - `RouterAgent` — intent-based dispatcher routing a message to a specialist
+    `Agent` via explicit `when` predicate, `keywords`, or an LLM classifier,
+    falling back to `default_agent`.
+  - `CriticAgent` — Reflexion-style actor/critic loop: produces a candidate with
+    an `actor`, evaluates via a `critic` (or `validator` callable), and feeds
+    critiques back for up to `max_iterations` until approved; returns
+    `CriticResult`.
+- **New skill types** (`ai_runtime.skills.types`):
+  - `RetrievalSkill` — RAG-backed skill that injects retrieved context (via a
+    `ai_runtime.rag.Retriever`) into the prompt before the LLM call.
+  - `GuardrailSkill` — validation hook gating model output via a `guardrail`
+    callable, with `reject` / `warn` / `rewrite` on-fail policies; returns
+    `GuardrailOutcome`.
+  - `Skill` gained optional `retriever` / `retrieval_top_k` /
+    `retrieval_query_template` and `guardrail` / `guardrail_on_fail` fields.
+  - `ComposedSkills` gained `retrieval_skills`, `guardrail_skills`,
+    `async retrieval_context(task)`, and `apply_guardrails(output)`.
+- **New command types** (`ai_runtime.commands`):
+  - Categorized slash commands `/review`, `/explain`, `/test`, `/workflow`
+    (plus existing `/compact`, `/context`, `/clear`).
+  - `Command` gained `category` (general|review|explain|test|workflow), `args`,
+    and `with_args()` binding.
+- **New streaming event** (`ai_runtime.streaming.workflow`):
+  - `WorkflowEvent` (type `workflow`) surfaces DAG/router/critic progress
+    (`queued` → `running` → `completed`/`failed`); recorded on
+    `ExecutionContext.metadata["workflow_steps"]` via `EventProcessor`.
+- **Tests**: `tests/agents/test_agent_types.py`,
+  `tests/skills/test_skill_types.py`, `tests/commands/test_command_types.py`
+  (19 new tests, all passing).
+
+### Changed
+- Bumped version to `0.8.0`.
+- `CommandRegistry.render()` renamed its first parameter to `command_name` to
+  avoid a clash with the `name` template arg used by the `/workflow` command.
+
 ## [0.7.0] - 2026-07-14
 
 ### Added (Web application)

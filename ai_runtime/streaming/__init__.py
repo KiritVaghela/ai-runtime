@@ -9,6 +9,7 @@ from .tool_call import ToolCallEvent
 from .tool_result import ToolResultEvent
 from .thinking import ThinkingEvent
 from .permission import PermissionEvent
+from .workflow import WorkflowEvent
 
 __all__ = [
     "StreamEvent",
@@ -22,4 +23,5 @@ __all__ = [
     "ToolResultEvent",
     "ThinkingEvent",
     "PermissionEvent",
+    "WorkflowEvent",
 ]

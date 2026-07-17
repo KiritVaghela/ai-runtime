@@ -30,17 +30,27 @@ class CompactionStage(ExecutionStage):
         self.estimator = estimator
 
     async def execute(self, context: ExecutionContext) -> ExecutionContext:
+        # If a provider is available and no explicit summarizer was given,
+        # use the framework's own agentic summarizer for compaction.
+        summarizer = self.summarizer
+        if summarizer is None and getattr(context, "provider", None) is not None:
+            from ai_runtime.agents.self_agentic import (
+                make_agentic_compaction_summarizer,
+            )
+
+            summarizer = make_agentic_compaction_summarizer(context.provider)
+
         window = ContextWindow(
             conversation=context.conversation,
             max_tokens=self.max_tokens,
             estimator=self.estimator,
-            summarizer=self.summarizer,
+            summarizer=summarizer,
         )
         if not window.is_over_budget():
             return context
 
         before = window.token_count()
-        compacted = window.fit()
+        compacted = await window.fit_async()
         after = sum(self.estimator(str(m.content)) for m in compacted.messages)
 
         context.conversation = compacted

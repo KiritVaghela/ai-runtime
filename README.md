@@ -47,6 +47,77 @@ OpenAI Codex, Cursor):
 -   **Reasoning controls** — `ProviderConfig.reasoning_effort` / `thinking_enabled`
     / `thinking_budget_tokens`, forwarded when the provider supports reasoning.
 
+### Agentic workflow types (v0.8.0)
+
+Beyond the single-agent loop, `ai_runtime` now ships the higher-level agent
+primitives that modern agentic frameworks (LangGraph, AutoGen, CrewAI,
+Reflexion) are built from. They compose with the existing `Agent`, `Skill`,
+`Command`, and pipeline machinery.
+
+**New agent types** (`ai_runtime.agents`):
+
+-   **`WorkflowAgent`** — a declarative DAG of `WorkflowStep`s. Steps run in
+    dependency order with concurrent layers (bounded by `max_concurrency`);
+    each step's output is exposed to downstream steps via `{step_name}`
+    placeholders. Mirrors the graph/orchestration layer of LangGraph/AutoGen.
+-   **`RouterAgent`** — intent-based dispatcher. Routes a message to a
+    specialist `Agent` via explicit predicates, keyword matching, or an LLM
+    classifier, falling back to a `default_agent`. Mirrors multi-agent
+    orchestrators (CrewAI routers, AutoGen groups).
+-   **`CriticAgent`** — Reflexion-style actor/critic loop. Produces a candidate
+    with an `actor`, evaluates it with a `critic` (or a `validator` callable),
+    and feeds critiques back for up to `max_iterations` until approved. Mirrors
+    self-reflection / CriticGPT patterns.
+
+**New skill types** (`ai_runtime.skills`):
+
+-   **`RetrievalSkill`** — RAG-backed skill that injects retrieved context
+    (via a `ai_runtime.rag.Retriever`) into the prompt before the LLM call.
+-   **`GuardrailSkill`** — validation hook that gates model output via a
+    `guardrail` callable, with `reject` / `warn` / `rewrite` on-fail policies.
+    `ComposedSkills` aggregates retrieval context and applies guardrails
+    automatically.
+
+**New command types** (`ai_runtime.commands`):
+
+-   Categorized slash commands: `/review`, `/explain`, `/test`, `/workflow`
+    (plus the existing `/compact`, `/context`, `/clear`). Commands carry a
+    `category` and `args` and support `with_args()` binding.
+
+**New streaming event**:
+
+-   **`WorkflowEvent`** — surfaces DAG/router/critic progress (`queued` →
+    `running` → `completed`/`failed`) so clients can render step status, and is
+    recorded on `ExecutionContext.metadata["workflow_steps"]`.
+
+### Built-in agents, skills & commands (v0.8.1)
+
+The framework ships ready-to-use presets so you don't have to hand-roll common
+agents/skills/commands, and it uses them on *itself* to become more agentic.
+
+**Built-in agents** (`ai_runtime.agents.builtin`): `reviewer_agent`,
+`explainer_agent`, `tester_agent`, `summarizer_agent`, plus `critic_agent`
+(Reflexion loop) and `router_agent` (intent router with default
+review/explain/test routes).
+
+**Built-in skills** (`ai_runtime.skills.builtin`): `self_review_skill`,
+`explain_code_skill`, `generate_tests_skill`, `summarize_skill`,
+`no_secrets_guardrail` (secret-blocking `GuardrailSkill`), `retrieval_skill`
+(RAG-backed), and `default_builtin_skills()`.
+
+**Built-in commands** (`ai_runtime.commands.builtin`): reusable `Command`
+factories (`review_command`, `explain_command`, `test_command`,
+`workflow_command`, `compact_command`, `context_command`, `clear_command`)
+consumed by `default_commands()`.
+
+**Self-agentic wiring** — the runtime turns its own primitives on itself:
+
+-   `AgentRunner(self_review=True)` runs a `CriticAgent` self-review (reflexion)
+    pass over its own output before returning, in both `run()` and `stream()`.
+-   `CompactionStage` uses the framework's own `summarizer_agent` as an
+    LLM-backed compaction summarizer (via `make_agentic_compaction_summarizer`)
+    when a provider is present, instead of naively dropping old turns.
+
 ### Integration surfaces (v0.7.0)
 
 To embed `ai_runtime` in a **web app, desktop app, VS Code, or CLI** like
@@ -92,11 +163,46 @@ Features exposed in the UI:
 - **Permissions** — `PermissionPolicy` allow/deny/ask rules per tool + params
 - **Sub-agents** — configure `SubAgentSpec`s; supervisor fans them out
 - **Background tasks** — submit/resume/cancel via `BackgroundTaskRegistry`
-- **Slash commands** — `/compact`, `/context`, `/clear`
+- **Slash commands** — `/compact`, `/context`, `/clear`, plus categorized
+  agentic commands `/review`, `/explain`, `/test`, `/workflow`
 - **MCP** — connect a stdio MCP server and register its tools
 - **Reasoning controls** — `reasoning_effort` / `thinking_enabled` per request
+- **Built-in agents panel** — run `reviewer` / `explainer` / `tester` /
+  `summarizer` / `router` / `critic` presets from the UI
+  (`GET /api/builtin/agents`, `POST /api/builtin/agents/run`)
+- **Built-in skills panel** — compose `self_review`, `explain_code`,
+  `generate_tests`, `summarize`, `no_secrets_guardrail`, `retrieval` skills
+  into a session (`GET /api/builtin/skills`, `POST /api/builtin/skills/apply`)
+- **Built-in command palette** — invoke categorized commands from the UI
+  (`GET /api/builtin/commands`, `POST /api/builtin/commands/run`).
+  Both the composer slash-autocomplete and the command palette show a worked
+  **example** for each command (e.g. `/review def add(a, b): …`).
+- **Self-review toggle** — enable the reflexion self-review pass per session
+  (`POST /api/builtin/self-review`)
 
 See `web/README.md` for the full API reference.
+
+### Built-in commands
+
+The web UI (and CLI) ship a categorized `/` command menu. Type `/` in the
+composer to see the full list with live examples, or open the command palette
+(Cmd/Ctrl+K). Every command accepts free-form text after its name:
+
+| Command | Category | Example |
+|----------|----------|----------|
+| `/compact` | general | `/compact` — summarize the conversation to free context |
+| `/context` | general | `/context` — show a token/context breakdown |
+| `/clear` | general | `/clear` — clear the conversation history |
+| `/review` | review | `/review def add(a, b):\n    return a + b` |
+| `/explain` | explain | `/explain the quicksort implementation in sort.py` |
+| `/test` | test | `/test def divide(a, b):\n    return a / b` |
+| `/workflow` | workflow | `/workflow refactor Extract the parser into its own module` |
+
+- **General commands** (`/compact`, `/context`, `/clear`) run as side effects
+  against the active session.
+- **Agentic commands** (`/review`, `/explain`, `/test`, `/workflow`) render
+  their prompt template with the supplied text and run it through the session's
+  own agent runner, streaming the result back into the chat.
 
 ## Installation
 

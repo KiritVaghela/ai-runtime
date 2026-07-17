@@ -46,3 +46,46 @@ class ComposedSkills:
         for s in self.skills:
             names.extend(s.tools)
         return names
+
+    @property
+    def retrieval_skills(self) -> list["Skill"]:
+        """Skills that inject retrieved RAG context into the prompt."""
+        return [s for s in self.skills if getattr(s, "retriever", None) is not None]
+
+    @property
+    def guardrail_skills(self) -> list["Skill"]:
+        """Skills that validate/reject model output."""
+        return [s for s in self.skills if getattr(s, "guardrail", None) is not None]
+
+    async def retrieval_context(self, task: str) -> str:
+        """Aggregate retrieved context from all retrieval skills."""
+        blocks: list[str] = []
+        for s in self.retrieval_skills:
+            try:
+                ctx = await s.retrieve_context(task)
+            except Exception:
+                ctx = ""
+            if ctx:
+                blocks.append(f"[Retrieved context: {s.name}]\n{ctx}")
+        return "\n\n".join(blocks)
+
+    def apply_guardrails(self, output: str) -> "tuple[str, list]":
+        """Run all guardrail skills over output.
+
+        Returns ``(final_output, failures)`` where ``failures`` is a list of
+        ``GuardrailOutcome`` for any guardrail that did not pass.
+        """
+        from .types import GuardrailOutcome
+
+        failures: list[GuardrailOutcome] = []
+        final = output
+        for s in self.guardrail_skills:
+            outcome = s.evaluate(final)
+            if not outcome.passed:
+                failures.append(outcome)
+                if outcome.action == "reject":
+                    final = f"[blocked by guardrail '{s.name}']: {outcome.message}"
+                elif outcome.action == "rewrite" and outcome.rewritten is not None:
+                    final = outcome.rewritten
+                # "warn" passes output through unchanged.
+        return final, failures

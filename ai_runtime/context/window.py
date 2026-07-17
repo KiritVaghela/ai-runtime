@@ -90,21 +90,42 @@ class ContextWindow:
         return self.token_count() > self.max_tokens
 
     def fit(self) -> Conversation:
-        """Return a budget-compliant copy of the conversation."""
+        """Return a budget-compliant copy of the conversation.
+
+        Synchronous variant. If the summarizer is a coroutine function, use
+        `fit_async` instead (the compaction stage does this).
+        """
         if not self.is_over_budget():
             return self.conversation.copy()
 
         if self.summarizer is not None:
             summary = self.summarizer(self.conversation)
-            compacted = Conversation()
-            compacted.add(
-                self.conversation.messages[0]
-                if self.conversation.messages
-                and self.conversation.messages[0].role.value == "system"
-                else __import__(
-                    "ai_runtime.conversation", fromlist=["ChatMessage"]
-                ).ChatMessage.system(summary)
-            )
-            return compacted
+            return self._wrap_summary(summary)
 
         return self.strategy.truncate(self.conversation)
+
+    async def fit_async(self) -> Conversation:
+        """Async variant of `fit` that awaits coroutine summarizers."""
+        if not self.is_over_budget():
+            return self.conversation.copy()
+
+        if self.summarizer is not None:
+            import inspect
+
+            if inspect.iscoroutinefunction(self.summarizer):
+                summary = await self.summarizer(self.conversation)
+            else:
+                summary = self.summarizer(self.conversation)
+            return self._wrap_summary(summary)
+
+        return self.strategy.truncate(self.conversation)
+
+    def _wrap_summary(self, summary: str) -> Conversation:
+        from ai_runtime.conversation import ChatMessage
+
+        compacted = Conversation()
+        first = self.conversation.messages[0] if self.conversation.messages else None
+        if first is not None and first.role.value == "system":
+            compacted.add(first)
+        compacted.add(ChatMessage.system(f"[summary]\n{summary}"))
+        return compacted

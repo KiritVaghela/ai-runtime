@@ -24,3 +24,15 @@ class Skill:
     paths: list[str] = field(default_factory=list)  # path prefixes where active
     globs: list[str] = field(default_factory=list)  # file-glob triggers
     disable_model_invocation: bool = False  # if True, skill is manual-only
+
+    # RetrievalSkill config (RAG-backed skill): when set, the skill injects
+    # retrieved context into the system prompt before the LLM is called.
+    retriever: Any | None = None  # an `ai_runtime.rag.Retriever` instance
+    retrieval_top_k: int = 4
+    retrieval_query_template: str | None = None  # receives `task`
+
+    # GuardrailSkill config (validation hook): when set, the skill validates
+    # the model output and may rewrite/reject it before it is returned.
+    guardrail: Callable[[str], tuple[bool, str]] | None = None
+    # signature: (output: str) -> (passed: bool, message: str)
+    guardrail_on_fail: str = "reject"  # "reject" | "warn" | "rewrite"

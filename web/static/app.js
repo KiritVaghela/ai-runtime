@@ -538,7 +538,7 @@ function clearRateLimit() {
 }
 
 // ---- Messages ----
-function addMsg(role, html, asMarkdown = false, hidx = null, meta = null) {
+function addMsg(role, html, asMarkdown = false, hidx = null, meta = null, asHtml = false) {
   const wrap = document.createElement("div");
   wrap.className = "msg " + role;
   wrap.dataset.msgId = String(++msgCounter);
@@ -551,6 +551,7 @@ function addMsg(role, html, asMarkdown = false, hidx = null, meta = null) {
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   if (asMarkdown) bubble.innerHTML = renderMarkdown(html);
+  else if (asHtml) bubble.innerHTML = html;
   else bubble.textContent = html;
   bubbleWrap.appendChild(bubble);
   if (role === "assistant") {
@@ -997,6 +998,159 @@ function buildToolResultCard(evt) {
 }
 
 // ---- Send / stream ----
+// Friendly in-chat confirmations for commands that return {"ok": true}
+// (e.g. /compact) instead of a textual output or structured breakdown.
+const COMPACT_LABELS = {
+  compact: "✓ Context compacted — older messages summarized to free up space.",
+  clear: "✓ Conversation cleared.",
+};
+
+function renderContextBreakdown(b) {
+  const roles = Object.entries(b.by_role || {})
+    .map(([r, n]) => `<li><strong>${r}</strong>: ${n}</li>`)
+    .join("");
+  const pct = b.utilization_pct ?? 0;
+  const flag = b.over_budget ? " ⚠ over budget" : " ✓ within budget";
+
+  // --- Memory-block visualization -----------------------------------------
+  // Divide the token budget into a fixed grid of blocks. Each block holds an
+  // equal slice of tokens; user/assistant blocks are coloured by role and the
+  // remainder are free (empty) blocks.
+  const BLOCKS = 40;
+  const max = Math.max(1, b.max_tokens);
+  const used = b.estimated_tokens || 0;
+  const tbr = b.tokens_by_role || {};
+  const userTok = tbr.user || 0;
+  const asstTok = tbr.assistant || 0;
+  // Proportionally size each role's blocks, but guarantee at least one block
+  // per non-empty role so the user/assistant contribution is always visible.
+  let uB = userTok > 0 ? Math.max(1, Math.round((userTok / max) * BLOCKS)) : 0;
+  let aB = asstTok > 0 ? Math.max(1, Math.round((asstTok / max) * BLOCKS)) : 0;
+  // Never let the occupied blocks exceed the used portion of the grid.
+  const usedBlocks = Math.max(1, Math.round((used / max) * BLOCKS));
+  if (uB + aB > usedBlocks) {
+    // Scale down proportionally, keeping at least one block per role.
+    const scale = usedBlocks / (uB + aB);
+    uB = Math.max(1, Math.round(uB * scale));
+    aB = Math.max(1, usedBlocks - uB);
+  }
+  const freeBlocks = Math.max(0, BLOCKS - uB - aB);
+
+  let blocksHtml = "";
+  for (let i = 0; i < uB; i++) blocksHtml += `<span class="ctx-block ctx-user" title="user tokens"></span>`;
+  for (let i = 0; i < aB; i++) blocksHtml += `<span class="ctx-block ctx-assistant" title="assistant tokens"></span>`;
+  for (let i = 0; i < freeBlocks; i++) blocksHtml += `<span class="ctx-block ctx-free" title="free"></span>`;
+
+  const legend =
+    `<div class="ctx-legend">` +
+    `<span class="ctx-leg"><span class="ctx-dot ctx-user"></span>User (${userTok})</span>` +
+    `<span class="ctx-leg"><span class="ctx-dot ctx-assistant"></span>Assistant (${asstTok})</span>` +
+    `<span class="ctx-leg"><span class="ctx-dot ctx-free"></span>Free (${Math.max(0, max - used)})</span>` +
+    `</div>`;
+
+  // Per-role message-count bars (user vs assistant contribution).
+  const userMsg = b.by_role?.user || 0;
+  const asstMsg = b.by_role?.assistant || 0;
+  const msgTotal = Math.max(1, userMsg + asstMsg);
+  const userMsgPct = Math.round((100 * userMsg) / msgTotal);
+  const asstMsgPct = Math.round((100 * asstMsg) / msgTotal);
+  const roleBars =
+    `<div class="ctx-rolebars">` +
+    `<div class="ctx-rolegrid">` +
+    `<span class="ctx-rolecount ctx-user-text">User: ${userMsg}</span>` +
+    `<span class="ctx-rolecount ctx-asst-text">Assistant: ${asstMsg}</span>` +
+    `</div>` +
+    `<div class="ctx-rolegrid">` +
+    `<span class="ctx-bar"><span class="ctx-fill ctx-user" style="width:${userMsgPct}%"></span></span>` +
+    `<span class="ctx-bar"><span class="ctx-fill ctx-assistant" style="width:${asstMsgPct}%"></span></span>` +
+    `</div>` +
+    `</div>`;
+
+  // --- Deep message-type breakdown ---------------------------------------
+  // Break messages down by finer type so the user can see exactly what is
+  // consuming context: system, user, assistant, tool calls, tool results,
+  // and MCP-backed tool results.
+  const TYPE_META = {
+    system:    { label: "System",      cls: "ctx-t-system" },
+    user:      { label: "User",        cls: "ctx-t-user" },
+    assistant: { label: "Assistant",   cls: "ctx-t-assistant" },
+    tool_call: { label: "Tool calls",  cls: "ctx-t-toolcall" },
+    tool:      { label: "Tool results", cls: "ctx-t-tool" },
+    mcp:       { label: "MCP results", cls: "ctx-t-mcp" },
+  };
+  const byType = b.by_type || {};
+  const tokByType = b.tokens_by_type || {};
+  const typeKeys = Object.keys(TYPE_META).filter((k) => (byType[k] || 0) > 0);
+  const typeTotal = Math.max(1, typeKeys.reduce((s, k) => s + byType[k], 0));
+  let typeRows = "";
+  for (const k of typeKeys) {
+    const n = byType[k];
+    const tok = tokByType[k] || 0;
+    const pctType = Math.round((100 * n) / typeTotal);
+    const meta = TYPE_META[k];
+    typeRows +=
+      `<div class="ctx-typerow">` +
+      `<span class="ctx-typelabel ${meta.cls}">${meta.label}</span>` +
+      `<span class="ctx-bar"><span class="ctx-fill ${meta.cls}" style="width:${pctType}%"></span></span>` +
+      `<span class="ctx-typenum">${n} · ${tok} tok</span>` +
+      `</div>`;
+  }
+  const typeBreakdown =
+    `<div class="ctx-types">` +
+    (typeRows || `<div class="ctx-typempty">No messages</div>`) +
+    `</div>`;
+
+  return (
+    `<div class="ctx-breakdown">` +
+    `<div class="ctx-title">Context window usage</div>` +
+    `<div class="ctx-graph-title">Memory graph</div>` +
+    `<div class="ctx-blocks">${blocksHtml}</div>` +
+    legend +
+    `<div class="ctx-graph-title">Message graph</div>` +
+    roleBars +
+    `<div class="ctx-graph-title">Message types</div>` +
+    typeBreakdown +
+    `<div class="ctx-stats">` +
+    `<span>${b.messages} messages</span>` +
+    `<span>${b.estimated_tokens} / ${b.max_tokens} tokens (${pct}%)</span>` +
+    `<span class="${b.over_budget ? "ctx-over" : "ctx-ok"}">${flag}</span>` +
+    `</div></div>`
+  );
+}
+
+// Render the before/after token usage for /compact so the user can see how
+// much context space was freed. Falls back to a plain friendly note when the
+// backend doesn't report token counts.
+function renderCompactResult(res, label) {
+  const before = res.before_tokens;
+  const after = res.after_tokens;
+  const max = res.max_tokens;
+  if (before == null || after == null) {
+    return `<div class="ctx-breakdown"><div class="ctx-title">Context</div>` +
+      `<div class="ctx-stats"><span>${label}</span></div></div>`;
+  }
+  const freed = res.freed_tokens ?? Math.max(0, before - after);
+  const beforePct = Math.round((100 * before) / Math.max(1, max));
+  const afterPct = Math.round((100 * after) / Math.max(1, max));
+  return (
+    `<div class="ctx-breakdown">` +
+    `<div class="ctx-title">Context compacted</div>` +
+    `<div class="ctx-compact">` +
+    `<div class="ctx-row"><span class="ctx-label">Before</span>` +
+    `<span class="ctx-bar"><span class="ctx-fill" style="width:${beforePct}%"></span></span>` +
+    `<span class="ctx-num">${before} tok</span></div>` +
+    `<div class="ctx-row"><span class="ctx-label">After</span>` +
+    `<span class="ctx-bar"><span class="ctx-fill ctx-fill-after" style="width:${afterPct}%"></span></span>` +
+    `<span class="ctx-num">${after} tok</span></div>` +
+    `</div>` +
+    `<div class="ctx-stats">` +
+    `<span>${res.messages_before} → ${res.messages_after} messages</span>` +
+    `<span class="ctx-ok">✓ freed ${freed} tokens</span>` +
+    `<span>${after} / ${max} used (${afterPct}%)</span>` +
+    `</div></div>`
+  );
+}
+
 async function send() {
   const text = $("#input").value.trim();
   if (!text) return;
@@ -1010,8 +1164,25 @@ async function send() {
 
   if (text.startsWith("/")) {
     const [cmd] = text.slice(1).split(" ");
-    const res = await api("POST", `/api/commands/${cmd}`, { session_id: currentSession });
-    addMsg("system", res.prompt || JSON.stringify(res));
+    const res = await api("POST", `/api/commands/${cmd}`, { session_id: currentSession, text: text.slice(1 + cmd.length).trim(), raw: text });
+    if (res.output) {
+      addMsg("user", res.prompt || `/${cmd}`);
+      addMsg("assistant", res.output, true);
+    } else if (res.breakdown) {
+      // /context returns a structured breakdown — render it as a system card.
+      addMsg("system", renderContextBreakdown(res.breakdown), false, null, null, true);
+    } else if (res.ok) {
+      // Commands like /compact return {"ok": true} (with optional before/after
+      // token counts) — show a friendly note instead of raw JSON.
+      if (cmd === "compact" && res.before_tokens != null) {
+        addMsg("system", renderCompactResult(res, COMPACT_LABELS.compact), false, null, null, true);
+      } else {
+        const friendly = COMPACT_LABELS[cmd] || `✓ ${cmd} completed`;
+        addMsg("system", friendly);
+      }
+    } else {
+      addMsg("system", res.prompt || JSON.stringify(res));
+    }
     return;
   }
 
@@ -1163,9 +1334,17 @@ function autoResize() {
 // ---- Wire up ----
 $("#send").addEventListener("click", send);
 $("#input").addEventListener("keydown", (e) => {
+  if (slashActive) {
+    if (e.key === "ArrowDown") { e.preventDefault(); moveSlash(1); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); moveSlash(-1); return; }
+    if (e.key === "Enter" || e.key === "Tab") {
+      if (slashMatches.length) { e.preventDefault(); acceptSlash(slashMatches[slashIndex]); return; }
+    }
+    if (e.key === "Escape") { e.preventDefault(); slashActive = false; $("#slash-menu").classList.add("hidden"); return; }
+  }
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 });
-$("#input").addEventListener("input", () => { autoResize(); updateSendState(); });
+$("#input").addEventListener("input", () => { autoResize(); updateSendState(); updateSlashMenu(); });
 const startNewChat = () => {
   currentSession = null;
   // New chats default to medium effort; thinking is on when the provider
@@ -1478,7 +1657,205 @@ $("#set-mode").addEventListener("change", (e) => { pendingSettings.mode = e.targ
 $("#set-effort").addEventListener("change", (e) => { pendingSettings.reasoning_effort = e.target.value || null; syncSettingsToggle(); });
 $("#set-thinking").addEventListener("change", (e) => { pendingSettings.thinking_enabled = e.target.checked; syncSettingsToggle(); });
 
+// ---- Built-in agents / skills panels (v0.8.1) ----
+async function loadBuiltins() {
+  try {
+    const [agents, skills, commands] = await Promise.all([
+      api("GET", "/api/builtin/agents"),
+      api("GET", "/api/builtin/skills"),
+      api("GET", "/api/builtin/commands"),
+    ]);
+    renderAgentList(agents.agents || []);
+    renderSkillList(skills.skills || []);
+    renderCommandPalette(commands.commands || []);
+    // If the user already typed "/" before the catalog loaded, refresh the
+    // slash menu now that ALL_COMMANDS is populated.
+    if ($("#input").value.startsWith("/")) updateSlashMenu();
+  } catch (e) {
+    console.warn("Failed to load built-ins", e);
+  }
+}
+
+function renderAgentList(agents) {
+  const list = $("#agent-list");
+  if (!list) return;
+  list.innerHTML = "";
+  agents.forEach((a) => {
+    const li = document.createElement("li");
+    li.className = "card";
+    li.innerHTML = `<div class="card-title">${a.name}</div><div class="card-desc">${a.description}</div>`;
+    list.appendChild(li);
+  });
+}
+
+function renderSkillList(skills) {
+  const list = $("#skill-list");
+  if (!list) return;
+  list.innerHTML = "";
+  skills.forEach((s) => {
+    const li = document.createElement("li");
+    li.className = "card";
+    const btn = document.createElement("button");
+    btn.className = "skill-apply";
+    btn.textContent = "Apply to session";
+    btn.addEventListener("click", async () => {
+      if (!currentSession) await newSession();
+      try {
+        const res = await api("POST", "/api/builtin/skills/apply", { session_id: currentSession, skill: s.name });
+        showToast(`Skill "${s.name}" applied`, "info");
+        renderActiveSkills(res.active_skills || []);
+      } catch (e) { showToast("Error: " + e.message, "error"); }
+    });
+    li.innerHTML = `<div class="card-title">${s.name}</div><div class="card-desc">${s.description}</div>`;
+    li.appendChild(btn);
+    list.appendChild(li);
+  });
+}
+
+function renderActiveSkills(active) {
+  const el = $("#skill-active");
+  if (!el) return;
+  if (!active || !active.length) { el.innerHTML = ""; return; }
+  el.innerHTML = "Active: " + active.map((n) => `<span class="chip">${n}</span>`).join(" ");
+}
+
+async function runBuiltinAgent() {
+  const task = $("#agent-task").value.trim();
+  if (!task) { showToast("Enter a task first", "error"); return; }
+  if (!currentSession) await newSession();
+  const agent = $("#agent-select") ? $("#agent-select").value : "reviewer";
+  const box = $("#agent-result");
+  box.classList.remove("hidden");
+  box.textContent = "Running…";
+  try {
+    const res = await api("POST", "/api/builtin/agents/run", { session_id: currentSession, agent, task });
+    const out = res.output || "";
+    box.innerHTML = `<div class="agent-meta">${res.agent}${res.iterations ? " · " + res.iterations + " iterations" : ""}${res.approved !== undefined ? " · " + (res.approved ? "approved" : "not approved") : ""}</div>` + renderMarkdown(out);
+  } catch (e) { box.textContent = "Error: " + e.message; }
+}
+
+function renderCommandPalette(commands) {
+  // Keep a global catalog for the composer slash-autocomplete.
+  ALL_COMMANDS = commands.slice();
+  // Extend the command palette with the categorized built-in commands.
+  const extra = commands.map((c) => ({
+    label: `/${c.name} — ${c.description}`,
+    run: () => runBuiltinCommandFromPalette(c),
+  }));
+  PALETTE_COMMANDS.push(...extra);
+}
+
+// ---- Composer slash-command autocomplete ----
+// When the user types "/" at the start of the input, show a filterable list
+// of every available command. Arrow keys navigate; Enter/Tab accepts; Esc
+// dismisses. Selecting a command fills the input with "/<name> ".
+let slashActive = false;
+let slashIndex = 0;
+let slashMatches = [];
+
+function renderSlashMenu() {
+  const menu = $("#slash-menu");
+  if (!menu) return;
+  if (!slashMatches.length) {
+    menu.innerHTML = `<div class="slash-empty">No matching commands</div>`;
+    return;
+  }
+  menu.innerHTML = "";
+  slashMatches.forEach((c, i) => {
+    const item = document.createElement("div");
+    item.className = "slash-item" + (i === slashIndex ? " active" : "");
+    item.innerHTML =
+      `<span class="slash-cmd">/${c.name}</span>` +
+      `<span class="slash-sep"> — </span>` +
+      `<span class="slash-desc">${c.description}</span>`;
+    item.addEventListener("mousedown", (e) => { e.preventDefault(); acceptSlash(c); });
+    menu.appendChild(item);
+  });
+}
+
+function updateSlashMenu() {
+  const menu = $("#slash-menu");
+  const val = $("#input").value;
+  // Only show when the input begins with "/" (and has no spaces yet, so we
+  // don't pop over a command that's already being typed with arguments).
+  if (val.startsWith("/") && !val.includes(" ")) {
+    // If the catalog hasn't loaded yet (e.g. user typed "/" before the
+    // initial loadBuiltins() fetch resolved), kick it off so the menu
+    // populates instead of staying empty.
+    if (!ALL_COMMANDS.length) {
+      loadBuiltins();
+      return;
+    }
+    const q = val.slice(1).toLowerCase();
+    slashMatches = ALL_COMMANDS.filter((c) => c.name.toLowerCase().includes(q));
+    slashIndex = 0;
+    slashActive = true;
+    menu.classList.remove("hidden");
+    renderSlashMenu();
+  } else {
+    slashActive = false;
+    menu.classList.add("hidden");
+  }
+}
+
+function acceptSlash(cmd) {
+  const input = $("#input");
+  input.value = `/${cmd.name} `;
+  slashActive = false;
+  $("#slash-menu").classList.add("hidden");
+  input.focus();
+  autoResize();
+  updateSendState();
+}
+
+function moveSlash(dir) {
+  if (!slashMatches.length) return;
+  slashIndex = (slashIndex + dir + slashMatches.length) % slashMatches.length;
+  renderSlashMenu();
+  const menu = $("#slash-menu");
+  const active = menu.querySelector(".slash-item.active");
+  if (active) active.scrollIntoView({ block: "nearest" });
+}
+
+async function runBuiltinCommandFromPalette(c) {
+  if (!currentSession) await newSession();
+  // Commands that need a target prompt the user; others run immediately.
+  const needsArg = (c.args || []).length > 0;
+  let args = {};
+  if (needsArg) {
+    const val = await promptModal(`Argument for /${c.name} (${c.args.join(", ")}):`);
+    if (val === null) return;
+    args[c.args[0]] = val;
+  }
+  try {
+    const res = await api("POST", "/api/builtin/commands/run", { session_id: currentSession, name: c.name, args });
+    showToast(`/${c.name} ran`, "info");
+    // Surface the produced prompt/turn in the chat if present.
+    if (res.output) {
+      addMsg("user", res.prompt || `/${c.name}`);
+      addMsg("assistant", res.output, true);
+    }
+  } catch (e) { showToast("Error: " + e.message, "error"); }
+}
+
+// Wire the Agents/Skills panel controls once the DOM is ready.
+function wireBuiltinPanels() {
+  const runBtn = $("#agent-run");
+  if (runBtn) runBtn.addEventListener("click", runBuiltinAgent);
+  const toggle = $("#self-review-toggle");
+  if (toggle) toggle.addEventListener("change", async (e) => {
+    if (!currentSession) await newSession();
+    try {
+      await api("POST", "/api/builtin/self-review", { session_id: currentSession, enabled: e.target.checked });
+      showToast(e.target.checked ? "Self-review enabled" : "Self-review disabled", "info");
+    } catch (err) { showToast("Error: " + err.message, "error"); }
+  });
+}
+
 // ---- Command palette (Phase 6) ----
+// Global catalog of all available commands (populated by renderCommandPalette)
+// used by the composer slash-autocomplete.
+let ALL_COMMANDS = [];
 const PALETTE_COMMANDS = [
   { label: "New chat", run: () => startNewChat() },
   { label: "Toggle theme", run: () => $("#theme-toggle").click() },
@@ -1509,7 +1886,15 @@ function renderPalette(q) {
   list.innerHTML = "";
   PALETTE_COMMANDS.filter((c) => c.label.toLowerCase().includes(q.toLowerCase())).forEach((c) => {
     const li = document.createElement("li");
-    li.textContent = c.label;
+    const idx = c.label.indexOf(" — ");
+    if (idx > 0) {
+      const cmd = c.label.slice(0, idx);
+      const desc = c.label.slice(idx + 3);
+      li.innerHTML = `<span class="palette-cmd">${cmd}</span>` +
+        `<span class="palette-sep"> — </span><span class="palette-desc">${desc}</span>`;
+    } else {
+      li.textContent = c.label;
+    }
     li.addEventListener("click", () => { c.run(); closePalette(); });
     list.appendChild(li);
   });
@@ -1517,6 +1902,39 @@ function renderPalette(q) {
 function closePalette() { $("#palette").classList.add("hidden"); }
 $("#palette-input").addEventListener("input", (e) => renderPalette(e.target.value));
 $("#palette").addEventListener("click", (e) => { if (e.target.id === "palette") closePalette(); });
+
+// Inline prompt modal — a `window.prompt` replacement that works in the
+// browser (the native prompt() is unsupported in this embedding).
+function promptModal(title, defaultValue = "") {
+  return new Promise((resolve) => {
+    const modal = $("#prompt-modal");
+    const input = $("#prompt-input");
+    const titleEl = $("#prompt-title");
+    titleEl.textContent = title;
+    input.value = defaultValue;
+    modal.classList.remove("hidden");
+    input.focus();
+    input.select();
+    const cleanup = () => {
+      modal.classList.add("hidden");
+      $("#prompt-ok").removeEventListener("click", onOk);
+      $("#prompt-cancel").removeEventListener("click", onCancel);
+      input.removeEventListener("keydown", onKey);
+      modal.removeEventListener("click", onBackdrop);
+    };
+    const onOk = () => { cleanup(); resolve(input.value); };
+    const onCancel = () => { cleanup(); resolve(null); };
+    const onKey = (e) => {
+      if (e.key === "Enter") { e.preventDefault(); onOk(); }
+      else if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+    };
+    const onBackdrop = (e) => { if (e.target.id === "prompt-modal") onCancel(); };
+    $("#prompt-ok").addEventListener("click", onOk);
+    $("#prompt-cancel").addEventListener("click", onCancel);
+    input.addEventListener("keydown", onKey);
+    modal.addEventListener("click", onBackdrop);
+  });
+}
 
 // ---- Keyboard shortcuts (Phase 6) ----
 document.addEventListener("keydown", (e) => {
@@ -1551,4 +1969,7 @@ document.addEventListener("keydown", (e) => {
   syncSettingsToggle();
   updateSendState();
   if (currentSession) await loadHistory();
+  // v0.8.1: surface built-in agents / skills / commands in the UI.
+  wireBuiltinPanels();
+  await loadBuiltins();
 })();

@@ -25,6 +25,21 @@ class MCPTool(Tool):
         # MCP calls are async; the executor awaits coroutine results.
         return self._run_async(input)
 
+    def to_schema(self) -> dict[str, Any]:
+        """Expose the MCP server's declared input schema verbatim."""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description or "",
+                "parameters": self._spec.input_schema or {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": True,
+                },
+            },
+        }
+
     async def _run_async(self, input: Any) -> ToolResult:
         try:
             if isinstance(input, str):

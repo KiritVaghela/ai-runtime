@@ -11,3 +11,4 @@ class StreamEventType(str, Enum):
     TOOL_RESULT = "tool_result"
     THINKING = "thinking"
     PERMISSION = "permission"
+    WORKFLOW = "workflow"
