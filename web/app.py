@@ -469,11 +469,22 @@ async def ws_chat(websocket: WebSocket, session_id: str):
         await websocket.close()
         return
 
+    # Register this connection so permission prompts can be pushed to it.
+    session.ws = websocket
+
     # Track the currently-running generation task so the client can stop it.
     current_task: asyncio.Task | None = None
 
     async def _stream_turn(prompt: str, mode: str, effort: str | None = None, atts: list | None = None, send_done: bool = True, record_user: bool = True):
-        """Stream a single turn, recording events into history. Returns when done.
+        """Stream a single turn, recording events into history.
+
+        IMPORTANT: this launches the stream as a background task and returns
+        immediately. The surrounding `while True` receive loop keeps reading
+        client messages (including `permission_response`) so that a tool
+        permission prompt can be answered while the stream is paused waiting
+        on `on_ask`. The terminal `done`/`stopped`/`error` events are sent
+        from inside the task itself.
+
         When `send_done` is False the caller is responsible for sending the
         terminal `done` event (e.g. to attach regeneration metadata).
         When `record_user` is False the caller has already recorded the user
@@ -483,21 +494,58 @@ async def ws_chat(websocket: WebSocket, session_id: str):
         atts = atts or []
         if mode == "plan":
             session.history.append({"type": "user", "content": prompt, "attachments": atts})
-            try:
-                async def _plan():
+
+            async def _plan():
+                try:
                     async for event in session.runner.stream_plan(prompt):
                         await websocket.send_text(serialize_event(event))
-                current_task = asyncio.create_task(_plan())
-                await current_task
-                plan_obj = session.runner.last_plan
-                plan_text = session.runner.last_plan_text or (str(plan_obj) if plan_obj else "")
-                session.history.append({"type": "plan", "content": plan_text})
+                    plan_obj = session.runner.last_plan
+                    plan_text = session.runner.last_plan_text or (str(plan_obj) if plan_obj else "")
+                    session.history.append({"type": "plan", "content": plan_text})
+                    manager._save_session(session)
+                    await websocket.send_json({"type": "plan", "plan": plan_text})
+                except asyncio.CancelledError:
+                    if session.history and session.history[-1].get("type") == "user":
+                        session.history.pop()
+                    manager._save_session(session)
+                    await websocket.send_json({"type": "stopped"})
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    if session.history and session.history[-1].get("type") == "user":
+                        session.history.pop()
+                    manager._save_session(session)
+                    if _is_rate_limit(e):
+                        await websocket.send_json(_rate_limit_event(session, e))
+                    else:
+                        logger.exception("WebSocket plan failed for session %s", session_id)
+                        await websocket.send_json({"type": "error", "error": f"{type(e).__name__}: {e}"})
+
+            current_task = asyncio.create_task(_plan())
+            return
+
+        # Chat / tool-loop turn.
+        if record_user:
+            session.history.append({"type": "user", "content": prompt, "attachments": atts})
+
+        async def _chat():
+            turn: list[dict[str, Any]] = []
+            buf: dict[str, str] = {}
+            try:
+                async for event in session.runner.stream(prompt):
+                    await websocket.send_text(serialize_event(event))
+                    if getattr(event, "type", None) is None:
+                        return
+                    ev_dict = event.model_dump() if hasattr(event, "model_dump") else {"type": "unknown"}
+                    if "type" in ev_dict and hasattr(ev_dict["type"], "value"):
+                        ev_dict["type"] = ev_dict["type"].value
+                    _record_event(turn, ev_dict, buf)
+                session.history.extend(turn)
                 manager._save_session(session)
-                await websocket.send_json({"type": "plan", "plan": plan_text})
+                if send_done:
+                    await websocket.send_json({"type": "done"})
             except asyncio.CancelledError:
-                # Stopped by the user — keep the user message, drop the plan.
-                if session.history and session.history[-1].get("type") == "user":
-                    session.history.pop()
+                # Stopped mid-stream: keep what we have, persist partial turn.
+                session.history.extend(turn)
                 manager._save_session(session)
                 await websocket.send_json({"type": "stopped"})
                 raise
@@ -508,46 +556,11 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                 if _is_rate_limit(e):
                     await websocket.send_json(_rate_limit_event(session, e))
                 else:
-                    logger.exception("WebSocket plan failed for session %s", session_id)
+                    logger.exception("WebSocket stream failed for session %s", session_id)
                     await websocket.send_json({"type": "error", "error": f"{type(e).__name__}: {e}"})
-            return
 
-        # Chat / tool-loop turn.
-        if record_user:
-            session.history.append({"type": "user", "content": prompt, "attachments": atts})
-        turn: list[dict[str, Any]] = []
-        buf: dict[str, str] = {}
-        try:
-            async def _chat():
-                async for event in session.runner.stream(prompt):
-                    await websocket.send_text(serialize_event(event))
-                    if getattr(event, "type", None) is None:
-                        return
-                    ev_dict = event.model_dump() if hasattr(event, "model_dump") else {"type": "unknown"}
-                    if "type" in ev_dict and hasattr(ev_dict["type"], "value"):
-                        ev_dict["type"] = ev_dict["type"].value
-                    _record_event(turn, ev_dict, buf)
-            current_task = asyncio.create_task(_chat())
-            await current_task
-            session.history.extend(turn)
-            manager._save_session(session)
-            if send_done:
-                await websocket.send_json({"type": "done"})
-        except asyncio.CancelledError:
-            # Stopped mid-stream: keep what we have, persist partial turn.
-            session.history.extend(turn)
-            manager._save_session(session)
-            await websocket.send_json({"type": "stopped"})
-            raise
-        except Exception as e:  # noqa: BLE001
-            if session.history and session.history[-1].get("type") == "user":
-                session.history.pop()
-            manager._save_session(session)
-            if _is_rate_limit(e):
-                await websocket.send_json(_rate_limit_event(session, e))
-            else:
-                logger.exception("WebSocket stream failed for session %s", session_id)
-                await websocket.send_json({"type": "error", "error": f"{type(e).__name__}: {e}"})
+        current_task = asyncio.create_task(_chat())
+        return
 
     try:
         while True:
@@ -561,6 +574,29 @@ async def ws_chat(websocket: WebSocket, session_id: str):
             if action == "stop":
                 if current_task and not current_task.done():
                     current_task.cancel()
+                continue
+
+            if action == "permission_response":
+                # Resolve a pending human-in-the-loop permission request.
+                rid = data.get("request_id")
+                approved = bool(data.get("approved", False))
+                # Optionally persist an allow/deny rule so the same tool
+                # isn't re-prompted for the rest of the session.
+                if rid and manager.resolve_permission_request(rid, approved):
+                    if approved and data.get("remember", False):
+                        manager.set_permission_rule(
+                            session.project.name,
+                            data.get("tool", "*"),
+                            data.get("params", "*"),
+                            "allow",
+                        )
+                    elif not approved and data.get("remember", False):
+                        manager.set_permission_rule(
+                            session.project.name,
+                            data.get("tool", "*"),
+                            data.get("params", "*"),
+                            "deny",
+                        )
                 continue
 
             if action == "regenerate":
@@ -594,7 +630,14 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                 # _stream_turn appends a new text entry; mark it as regenerated
                 # and carry the prior versions so the client can switch.
                 _regen_versions = versions  # captured for the post-stream patch
-                await _stream_turn(prompt, mode, effort, attachments, send_done=False, record_user=False)
+                _stream_turn(prompt, mode, effort, attachments, send_done=False, record_user=False)
+                # Regenerate is user-initiated (not concurrent with permission
+                # prompts), so await the task, then patch the new text entry.
+                if current_task is not None:
+                    try:
+                        await current_task
+                    except Exception:
+                        pass
                 # Patch the just-appended text entry with version metadata.
                 if session.history and session.history[-1].get("type") == "text":
                     session.history[-1]["versions"] = _regen_versions
@@ -618,11 +661,20 @@ async def ws_chat(websocket: WebSocket, session_id: str):
                 if not prompt:
                     await websocket.send_json({"type": "error", "error": "nothing to continue"})
                     continue
-                await _stream_turn(prompt, mode, effort, attachments)
+                if current_task is not None and not current_task.done():
+                    continue
+                current_task = asyncio.create_task(
+                    _stream_turn(prompt, mode, effort, attachments)
+                )
                 continue
 
-            # Default: normal send.
-            await _stream_turn(message, mode, effort, attachments)
+            # Default: normal send. Launch in the background so the receive
+            # loop stays alive to handle `permission_response` / `stop`.
+            if current_task is not None and not current_task.done():
+                continue
+            current_task = asyncio.create_task(
+                _stream_turn(message, mode, effort, attachments)
+            )
     except WebSocketDisconnect:
         if current_task and not current_task.done():
             current_task.cancel()

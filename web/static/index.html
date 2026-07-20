@@ -339,6 +339,21 @@
     </div>
   </div>
 
+  <!-- Tool permission prompt (human-in-the-loop) -->
+  <div id="perm-modal" class="palette hidden">
+    <div class="palette-box perm-box">
+      <div class="perm-title">🔒 Tool permission required</div>
+      <div id="perm-action" class="perm-action"></div>
+      <p class="perm-hint">This tool needs your permission to run. You can allow or deny just this time, or for the whole session.</p>
+      <div class="prompt-actions perm-actions">
+        <button id="perm-allow" class="btn-allow">Approve</button>
+        <button id="perm-allow-session" class="btn-allow-session">Always approve for session</button>
+        <button id="perm-deny" class="btn-deny">Deny</button>
+        <button id="perm-deny-session" class="btn-deny-session">Always deny for session</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toasts -->
   <div id="toasts" class="toasts"></div>
 

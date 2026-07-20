@@ -363,7 +363,9 @@ function renderHistoryEvent(e, hidx = null) {
       (e.calls || []).forEach((c) => $("#messages").appendChild(buildToolCallCard(c)));
       break;
     case "tool_result":
-      $("#messages").appendChild(buildToolResultCard(e));
+      // On replay, merge into the matching call card if present (same as
+      // the live path) so the bubble shows call + result together.
+      mergeToolResultIntoCard(e);
       break;
     case "usage":
       addUsageMsg(e.usage || {});
@@ -505,13 +507,60 @@ function handleEvent(evt) {
   } else if (type === "tool_call") {
     (evt.calls || []).forEach((c) => $("#messages").appendChild(buildToolCallCard(c)));
   } else if (type === "tool_result") {
-    $("#messages").appendChild(buildToolResultCard(evt));
+    // Merge the result into the matching tool-call card so the bubble shows
+    // the call AND its outcome in one place (no separate result bubble).
+    mergeToolResultIntoCard(evt);
   } else if (type === "usage") {
     addUsageMsg(evt.usage || {});
   } else if (type === "completed") {
     finalizeAssistant();
   } else if (type === "error") {
     addMsg("system", "Error: " + (evt.error || evt.message || "unknown error"));
+  } else if (type === "permission") {
+    showPermissionPrompt(evt);
+  }
+}
+
+// Attach a tool result to the previously-rendered tool-call card that has
+// the same call id (or, as a fallback, the same tool name). If no matching
+// card exists yet, render a standalone result card.
+function mergeToolResultIntoCard(evt) {
+  const callId = evt.call_id || null;
+  const name = evt.name || "tool";
+  let card = null;
+  if (callId) {
+    card = document.querySelector(`.tool-card[data-call-id="${CSS.escape(callId)}"]`);
+  }
+  if (!card && name) {
+    const candidates = document.querySelectorAll(".tool-card");
+    candidates.forEach((c) => {
+      if (!card && c.dataset.toolName === name && !c.dataset.resolved) card = c;
+    });
+  }
+  if (!card) {
+    $("#messages").appendChild(buildToolResultCard(evt));
+    return;
+  }
+  // Mark resolved so a later result with the same name doesn't double-bind.
+  card.dataset.resolved = "true";
+  const success = !(evt && evt.success === false);
+  const output = evt ? (evt.output != null ? evt.output : evt.error) : "";
+  const outStr = typeof output === "string" ? output : JSON.stringify(output, null, 2);
+  // Update the header to show the outcome glyph.
+  const head = card.querySelector(".tool-head");
+  if (head) head.textContent = (success ? "✓ " : "✗ ") + name;
+  card.classList.add(success ? "success" : "error");
+  // Append a result section to the card body.
+  const body = card.querySelector(".tool-body");
+  if (body) {
+    const sep = document.createElement("div");
+    sep.className = "tool-result-sep";
+    sep.textContent = success ? "✓ Result" : "✗ Error";
+    const out = document.createElement("div");
+    out.className = "tool-result-body";
+    out.textContent = outStr + (evt && evt.error && success ? "\n" + evt.error : "");
+    body.appendChild(sep);
+    body.appendChild(out);
   }
 }
 
@@ -934,6 +983,9 @@ function buildToolCallCard(call) {
   bubbleWrap.className = "bubble-wrap";
   const card = document.createElement("div");
   card.className = "tool-card";
+  // Tag the card so a later tool_result event can merge into it.
+  if (call && call.id) card.dataset.callId = call.id;
+  card.dataset.toolName = name;
   const head = document.createElement("div");
   head.className = "tool-head";
   head.textContent = "🔧 " + name;
@@ -1299,6 +1351,36 @@ async function loadTasks() {
 // ---- Permissions ----
 async function loadPerms() {
   $("#perm-list").innerHTML = "<li>Add a rule below to enforce allow/deny/ask.</li>";
+}
+
+// Show a human-in-the-loop prompt when the runtime needs tool permission.
+// The user's answer is sent back over the WebSocket as `permission_response`,
+// which resolves the pending request on the server and lets the tool run.
+function showPermissionPrompt(evt) {
+  const rid = evt.request_id;
+  const action = evt.action || "tool";
+  const tool = (evt.detail && evt.detail.tool) || "";
+  const params = (evt.detail && evt.detail.params) || "*";
+  $("#perm-action").textContent = action;
+  const modal = $("#perm-modal");
+  modal.classList.remove("hidden");
+
+  const send = (approved, remember) => {
+    ws.send(JSON.stringify({
+      action: "permission_response",
+      request_id: rid,
+      approved,
+      remember,
+      tool,
+      params,
+    }));
+    modal.classList.add("hidden");
+  };
+
+  $("#perm-allow").onclick = () => send(true, false);
+  $("#perm-allow-session").onclick = () => send(true, true);
+  $("#perm-deny").onclick = () => send(false, false);
+  $("#perm-deny-session").onclick = () => send(false, true);
 }
 
 // ---- Provider ----

@@ -1,4 +1,4 @@
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict
 from typing import Any
 
 from .event import StreamEvent

@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Any, AsyncIterator
+from typing import AsyncIterator
 
 from ai_runtime.agents import Agent, AgentRunner
-from ai_runtime.conversation import ChatMessage
-from ai_runtime.execution.mode import ExecutionMode
 
 from .protocol import (
     AgentRequest,
@@ -78,7 +76,6 @@ class AgentServer:
         import http.server
         import json
         from http.server import BaseHTTPRequestHandler
-        from functools import partial
 
         server_self = self
 

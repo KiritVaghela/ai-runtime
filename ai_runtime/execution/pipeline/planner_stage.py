@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import re
-from typing import Any
 
 from ai_runtime.conversation import ChatMessage
 from ai_runtime.execution.plan import Plan, PlanStep
@@ -10,12 +8,9 @@ from ai_runtime.execution.pipeline.stage import ExecutionStage
 from ai_runtime.execution.context import ExecutionContext
 from ai_runtime.execution.mode import ExecutionMode
 from ai_runtime.streaming import (
-    StreamEvent,
     TextDeltaEvent,
     ThinkingEvent,
-    CompletedEvent,
 )
-from collections.abc import AsyncIterator
 
 
 _PLANNER_SYSTEM = (

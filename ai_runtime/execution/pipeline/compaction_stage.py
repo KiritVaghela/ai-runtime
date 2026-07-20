@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Callable
 
 from ai_runtime.conversation import Conversation
 from ai_runtime.context.window import ContextWindow, estimate_tokens

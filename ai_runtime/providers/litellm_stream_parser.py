@@ -15,7 +15,55 @@ from ai_runtime.streaming import (
 class LiteLLMStreamParser:
     """
     Converts LiteLLM streaming chunks into AI Runtime StreamEvents.
+
+    Tool calls are streamed as multiple fragments (one chunk for the id,
+    one for the name, then several for the JSON arguments). Rather than
+    emitting a `ToolCallEvent` per fragment, we accumulate the fragments
+    keyed by their stream index and emit a *single* `ToolCallEvent`
+    containing every completed call once the stream finishes. This matches
+    the contract documented on `ToolCallEvent` ("emit one `ToolCallEvent`
+    per completed call") and lets the frontend render one card per tool.
     """
+
+    def __init__(self) -> None:
+        # index -> {"id", "name", "arguments"} accumulator for in-flight calls.
+        self._tool_calls: dict[int, dict[str, Any]] = {}
+
+    def _accumulate_tool_calls(self, tool_calls: list) -> None:
+        for tc in tool_calls:
+            idx = getattr(tc, "index", None)
+            if idx is None:
+                # Fall back to a stable key when index is missing.
+                idx = getattr(tc, "id", None) or id(tc)
+            slot = self._tool_calls.setdefault(
+                idx, {"id": None, "name": None, "arguments": ""}
+            )
+            tc_id = getattr(tc, "id", None)
+            if tc_id is not None:
+                slot["id"] = tc_id
+            fn = getattr(tc, "function", None)
+            if fn is not None:
+                name = getattr(fn, "name", None)
+                if name is not None:
+                    slot["name"] = name
+                args = getattr(fn, "arguments", None)
+                if args:
+                    slot["arguments"] += args
+
+    def _flush_tool_calls(self) -> list[StreamEvent]:
+        if not self._tool_calls:
+            return []
+        # Emit one event with all completed calls, ordered by index.
+        calls = [
+            {
+                "id": slot["id"],
+                "name": slot["name"],
+                "arguments": slot["arguments"],
+            }
+            for _, slot in sorted(self._tool_calls.items())
+        ]
+        self._tool_calls.clear()
+        return [ToolCallEvent(calls=calls)]
 
     def parse(self, chunk: Any) -> list[StreamEvent]:
         events: list[StreamEvent] = []
@@ -62,35 +110,16 @@ class LiteLLMStreamParser:
                     )
                 )
 
-            # Tool call deltas
+            # Tool call deltas: accumulate fragments, do not emit yet.
             tool_calls = getattr(delta, "tool_calls", None)
             if tool_calls:
-                calls = []
-                for tc in tool_calls:
-                    calls.append(
-                        {
-                            "id": getattr(tc, "id", None),
-                            "name": getattr(
-                                getattr(tc, "function", None),
-                                "name",
-                                None,
-                            ),
-                            "arguments": getattr(
-                                getattr(tc, "function", None),
-                                "arguments",
-                                None,
-                            ),
-                        }
-                    )
-                if calls:
-                    events.append(
-                        ToolCallEvent(calls=calls)
-                    )
+                self._accumulate_tool_calls(tool_calls)
 
-        # Finish reason
+        # Finish reason: flush accumulated tool calls, then emit completion.
         finish_reason = getattr(choice, "finish_reason", None)
 
         if finish_reason:
+            events.extend(self._flush_tool_calls())
             events.append(
                 CompletedEvent(
                     finish_reason=finish_reason,

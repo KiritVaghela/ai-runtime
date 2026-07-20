@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-07-20
+
+### Added
+- **Human-in-the-loop tool permissions in the web UI**: when a tool call hits
+  an `ASK` permission rule, the server pushes a `PermissionEvent` over the
+  WebSocket and the UI shows a popup with **Approve**, **Always approve for
+  session**, **Deny**, and **Always deny for session**. The answer is sent back
+  as a `permission_response` action; "always" options persist an allow/deny
+  rule for the rest of the session.
+- **Tool execution in streaming mode**: `ExecutionEngine.stream()` now runs the
+  tool-call loop inline (previously tools only ran in chat mode), so streamed
+  tool calls are executed and their results are fed back to the LLM within the
+  same turn.
+
+### Changed
+- **Tool-call event accumulation**: `LiteLLMStreamParser` now buffers
+  fragmented tool-call chunks and emits a single `ToolCallEvent` per completed
+  call (instead of one event per chunk), so the UI renders one `🔧 tool()` card
+  instead of several.
+- **Outgoing request serialization**: `LiteLLMMapper.to_message()` now serializes
+  `tool_calls` and `tool_call_id` so the provider sees the full function-calling
+  context when re-invoked with tool results.
+- **WebSocket concurrency**: the web receive loop now runs the stream as a
+  background task so it can process `permission_response` / `stop` messages
+  while a stream is paused awaiting permission (fixes a deadlock that left the
+  UI stuck after a tool-call request).
+
+### Fixed
+- Web UI no longer hangs after a tool-call request: the permission prompt is
+  shown and the tool result merges into the same tool-call card (`✓`/`✗`).
+
 ## [0.8.2] - 2026-07-16
 
 ### Added (Web app integration of built-ins)

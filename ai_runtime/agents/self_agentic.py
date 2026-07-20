@@ -4,7 +4,6 @@ from typing import Any
 
 from ai_runtime.conversation import Conversation
 
-from .agent import Agent
 from .builtin import summarizer_agent
 from .types import CriticAgent
 

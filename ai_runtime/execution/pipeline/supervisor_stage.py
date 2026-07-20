@@ -11,7 +11,6 @@ from ai_runtime.conversation import ChatMessage
 
 from .stage import ExecutionStage
 from ..context import ExecutionContext
-from ..mode import ExecutionMode
 
 
 class SupervisorStage(ExecutionStage):

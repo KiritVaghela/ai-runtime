@@ -21,9 +21,9 @@ applications and agent workflows.
 -   Provider metadata, capabilities, and request mapping
 -   Fully tested runtime and provider integration coverage
 
-### Agentic capabilities (v0.6.0)
+### Agentic capabilities
 
-`ai_runtime` now closes the gap with agentic coding tools (Claude Code,
+`ai_runtime` closes the gap with agentic coding tools (Claude Code,
 OpenAI Codex, Cursor):
 
 -   **Plan mode** — `AgentRunner.plan()` / `ExecutionEngine.plan()` produce a
@@ -47,9 +47,9 @@ OpenAI Codex, Cursor):
 -   **Reasoning controls** — `ProviderConfig.reasoning_effort` / `thinking_enabled`
     / `thinking_budget_tokens`, forwarded when the provider supports reasoning.
 
-### Agentic workflow types (v0.8.0)
+### Agentic workflow types
 
-Beyond the single-agent loop, `ai_runtime` now ships the higher-level agent
+Beyond the single-agent loop, `ai_runtime` ships the higher-level agent
 primitives that modern agentic frameworks (LangGraph, AutoGen, CrewAI,
 Reflexion) are built from. They compose with the existing `Agent`, `Skill`,
 `Command`, and pipeline machinery.
@@ -90,7 +90,7 @@ Reflexion) are built from. They compose with the existing `Agent`, `Skill`,
     `running` → `completed`/`failed`) so clients can render step status, and is
     recorded on `ExecutionContext.metadata["workflow_steps"]`.
 
-### Built-in agents, skills & commands (v0.8.1)
+### Built-in agents, skills & commands
 
 The framework ships ready-to-use presets so you don't have to hand-roll common
 agents/skills/commands, and it uses them on *itself* to become more agentic.
@@ -118,7 +118,7 @@ consumed by `default_commands()`.
     LLM-backed compaction summarizer (via `make_agentic_compaction_summarizer`)
     when a provider is present, instead of naively dropping old turns.
 
-### Integration surfaces (v0.7.0)
+### Integration surfaces
 
 To embed `ai_runtime` in a **web app, desktop app, VS Code, or CLI** like
 Claude Code / Codex / Cursor / Copilot, the framework now ships:
@@ -160,7 +160,11 @@ Features exposed in the UI:
 - **Projects** — `Project` scoping with auto-loaded instruction files + sandboxed
   built-in tools (Read/Write/Edit/Glob/Grep/Bash)
 - **Checkpoints / undo** — snapshot + restore files before agent edits
-- **Permissions** — `PermissionPolicy` allow/deny/ask rules per tool + params
+- **Permissions** — `PermissionPolicy` allow/deny/ask rules per tool + params.
+  When the policy says *ask*, the web UI shows a human-in-the-loop popup with
+  **Approve**, **Always approve for session**, **Deny**, and
+  **Always deny for session**; the tool runs (or is blocked) and its result
+  merges into the tool-call card.
 - **Sub-agents** — configure `SubAgentSpec`s; supervisor fans them out
 - **Background tasks** — submit/resume/cancel via `BackgroundTaskRegistry`
 - **Slash commands** — `/compact`, `/context`, `/clear`, plus categorized
@@ -385,54 +389,4 @@ See [CHANGELOG.md](CHANGELOG.md) for version history.
 pytest
 ```
 
-Current status:
-
--   Provider registry with custom provider registration
--   Streaming response support with timeouts and completion events
--   Session-based execution and conversation accumulation
--   Provider integration coverage with test doubles
-
-## Roadmap
-
-### v0.3.x
-
--   Tool registry
--   Tool execution
--   Permission manager
--   Filesystem tools
--   Bash tools
-
-### Future
-
--   MCP support
--   Multi-agent workflows
--   Desktop and terminal integrations
--   AI Factory integration
-
-## Publishing to PyPI
-
-1.  Update version in `pyproject.toml`.
-2.  Build:
-
-```bash
-python -m build
-```
-
-3.  Check:
-
-```bash
-twine check dist/*
-```
-
-4.  Upload to TestPyPI:
-
-```bash
-twine upload --repository testpypi dist/*
-```
-
-5.  Upload to PyPI:
-
-```bash
-twine upload dist/*
-```
 

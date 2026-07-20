@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from ai_runtime.agents.config_files import load_project_instructions
 from ai_runtime.memory import InMemoryStore, MemoryStore

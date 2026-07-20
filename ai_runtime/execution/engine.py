@@ -1,11 +1,18 @@
 import asyncio
+import json
 from collections.abc import AsyncIterator
 
-from ai_runtime.conversation import ChatMessage
+from ai_runtime.conversation import ChatMessage, ToolCall
 from ai_runtime.conversation import ChatRequest, ChatResponse
-from ai_runtime.streaming import StreamEvent, ErrorEvent, CompletedEvent
+from ai_runtime.streaming import (
+    StreamEvent,
+    ErrorEvent,
+    CompletedEvent,
+    TextDeltaEvent,
+    ToolCallEvent,
+    ToolResultEvent,
+)
 
-from .pipeline import ExecutionPipeline
 from .context import ExecutionContext
 
 from ai_runtime.execution.pipeline import (
@@ -141,55 +148,157 @@ class ExecutionEngine:
             context.temperature = message.temperature
             context.max_tokens = message.max_tokens
             context.stream_timeout = message.timeout
-    
 
-        context = await self.pipeline.execute(
-            context
-        )
+        executor = context.tool_executor
 
-        if context.stream is None:
-            raise RuntimeError("Provider stream not initialized.")
+        iteration = 0
+        max_iterations = 5
 
-        processor = EventProcessor(context)
+        while iteration < max_iterations:
+            iteration += 1
 
-        provider_timeout = None
-        if hasattr(context.provider, "config"):
-            provider_timeout = getattr(context.provider.config, "timeout", None)
+            context = await self.pipeline.execute(context)
 
-        timeout = (
-            context.stream_timeout
-            if context.stream_timeout is not None
-            else provider_timeout
-        )
+            if context.stream is None:
+                raise RuntimeError("Provider stream not initialized.")
 
-        while True:
-            try:
-                if timeout is not None:
-                    event = await asyncio.wait_for(
-                        context.stream.__anext__(),
-                        timeout=timeout,
-                    )
+            processor = EventProcessor(context)
+
+            provider_timeout = None
+            if hasattr(context.provider, "config"):
+                provider_timeout = getattr(context.provider.config, "timeout", None)
+
+            timeout = (
+                context.stream_timeout
+                if context.stream_timeout is not None
+                else provider_timeout
+            )
+
+            # Stream the current LLM turn, accumulating any tool calls.
+            pending_tool_calls: list[ToolCall] = []
+            while True:
+                try:
+                    if timeout is not None:
+                        event = await asyncio.wait_for(
+                            context.stream.__anext__(),
+                            timeout=timeout,
+                        )
+                    else:
+                        event = await context.stream.__anext__()
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    error_event = ErrorEvent(message="stream timeout")
+                    processor.process(error_event)
+                    yield error_event
+                    break
+                except Exception as exc:
+                    error_event = ErrorEvent(message=str(exc))
+                    processor.process(error_event)
+                    yield error_event
+                    break
                 else:
-                    event = await context.stream.__anext__()
-            except StopAsyncIteration:
-                break
-            except asyncio.TimeoutError:
-                error_event = ErrorEvent(message="stream timeout")
-                processor.process(error_event)
-                yield error_event
-                break
-            except Exception as exc:
-                error_event = ErrorEvent(message=str(exc))
-                processor.process(error_event)
-                yield error_event
-                break
-            else:
-                processor.process(event)
-                yield event
+                    processor.process(event)
+                    yield event
+                    # Capture completed tool calls for execution after the turn.
+                    if isinstance(event, ToolCallEvent):
+                        for call in event.calls:
+                            if call.get("id") and call.get("name"):
+                                pending_tool_calls.append(
+                                    ToolCall(
+                                        id=call["id"],
+                                        name=call["name"],
+                                        arguments=call.get("arguments", ""),
+                                    )
+                                )
 
-        if context.finish_reason is not None:
+            # No tool calls requested -> final answer, stop the loop.
+            if not pending_tool_calls:
+                if context.finish_reason is not None:
+                    context.conversation.add(
+                        ChatMessage.assistant(context.assistant_text)
+                    )
+                break
+
+            # Persist the assistant message that requested the tools so the
+            # next LLM turn sees the full conversation.
             context.conversation.add(
                 ChatMessage.assistant(
-                    context.assistant_text
+                    context.assistant_text,
+                    tool_calls=pending_tool_calls,
                 )
             )
+
+            # Execute each tool and emit a result event for the frontend.
+            for call in pending_tool_calls:
+                result = await self._run_tool(context, call, executor)
+                yield ToolResultEvent(
+                    call_id=call.id,
+                    name=call.name,
+                    output=result.output,
+                    success=result.success,
+                    error=result.error,
+                )
+                context.tool_results[call.id] = {
+                    "name": call.name,
+                    "output": result.output,
+                    "success": result.success,
+                    "error": result.error,
+                }
+                context.conversation.add(
+                    ChatMessage.tool(
+                        content=self._serialize(result.output),
+                        tool_call_id=call.id,
+                    )
+                )
+
+            # Reset streamed text for the next turn and re-run the pipeline
+            # (request builder + LLM) with the tool results appended.
+            context.assistant_text = ""
+            context.finish_reason = None
+            context.stream = None
+
+    async def _run_tool(self, context: ExecutionContext, call: ToolCall, executor):
+        """Execute a single tool call, mirroring ToolLoopStage's logic."""
+        from ai_runtime.tools.tool import ToolResult
+
+        if executor is None:
+            return ToolResult(
+                success=False,
+                error="No tool executor configured for this session.",
+            )
+
+        try:
+            arguments = call.arguments
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments) if arguments else {}
+                except json.JSONDecodeError:
+                    arguments = {"input": arguments}
+
+            timeout = None
+            if isinstance(arguments, dict):
+                timeout = arguments.pop("timeout", None)
+
+            result = await executor.execute(
+                call.name,
+                context,
+                arguments,
+                timeout=timeout,
+            )
+            if not isinstance(result, ToolResult):
+                result = ToolResult(success=True, output=result)
+            return result
+        except Exception as exc:  # noqa: BLE001
+            return ToolResult(success=False, error=str(exc))
+
+    @staticmethod
+    def _serialize(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        try:
+            return json.dumps(value, default=str)
+        except (TypeError, ValueError):
+            return str(value)

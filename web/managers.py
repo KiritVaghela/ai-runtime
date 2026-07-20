@@ -50,6 +50,9 @@ class Session:
     pinned: bool = False
     commands: CommandRegistry = field(default_factory=default_commands)
     history: list[dict[str, Any]] = field(default_factory=list)
+    # Active WebSocket connection (set when the client connects) so the
+    # permission prompt can be pushed to the right client during a stream.
+    ws: Any = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -67,11 +70,42 @@ class Manager:
         self.sessions: dict[str, Session] = {}
         self.background = BackgroundTaskRegistry()
         self.hooks = HookRegistry()
+        # Pending human-in-the-loop permission requests, keyed by request id.
+        # Each entry holds an asyncio.Future resolved when the user answers.
+        self._permission_requests: dict[str, Any] = {}
         # Restore any persisted provider settings from a local file.
         self._load_provider_store()
         # Restore persisted sessions (metadata + chat history).
         self._load_sessions()
         self._register_default_hooks()
+
+    # ---- Permission prompts (human-in-the-loop) ----
+    def create_permission_request(self, session_id: str, tool: str, params: str) -> tuple[str, "asyncio.Future[bool]"]:
+        """Register a pending permission request and return (request_id, future).
+
+        The future resolves to True (approved) or False (denied) when the
+        user answers via the WebSocket `permission_response` action.
+        """
+        import asyncio
+
+        request_id = uuid.uuid4().hex[:12]
+        future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
+        self._permission_requests[request_id] = {
+            "session_id": session_id,
+            "future": future,
+            "tool": tool,
+            "params": params,
+        }
+        return request_id, future
+
+    def resolve_permission_request(self, request_id: str, approved: bool) -> bool:
+        """Resolve a pending permission request from a user answer."""
+        pending = self._permission_requests.pop(request_id, None)
+        if pending is None:
+            return False
+        if not pending["future"].done():
+            pending["future"].set_result(approved)
+        return True
 
     # ---- Provider persistence ----
     @property
@@ -181,6 +215,7 @@ class Manager:
                     data.get("base_url"),
                     data.get("reasoning_effort"),
                     data.get("thinking_enabled", False),
+                    session_id=sid,
                 )
             except Exception:  # noqa: BLE001
                 logger.warning("Skipping persisted session %s (provider build failed)", sid)
@@ -264,6 +299,7 @@ class Manager:
         base_url: str | None = None,
         reasoning_effort: str | None = None,
         thinking_enabled: bool = False,
+        session_id: str | None = None,
     ) -> Agent:
         # Per-session provider settings override the global config default.
         provider = provider or self.config.provider
@@ -292,13 +328,52 @@ class Manager:
             raise RuntimeError(f"Provider creation failed: {e}") from e
 
         # Guarded executor enforces the project's permission policy.
-        executor = GuardedToolExecutor(
+        # When the policy says ASK, pause and prompt the user over the
+        # WebSocket (human-in-the-loop) instead of failing silently.
+        base_executor = (
             project.tool_registry.executor
             if hasattr(project.tool_registry, "executor")
             else __import__("ai_runtime.tools.executor", fromlist=["ToolExecutor"]).ToolExecutor(
                 project.tool_registry
-            ),
+            )
+        )
+
+        def _make_on_ask(sid: str | None):
+            if sid is None:
+                return None
+
+            async def _on_ask(tool_name: str, param_str: str) -> bool:
+                request_id, future = self.create_permission_request(
+                    sid, tool_name, param_str
+                )
+                # Push the permission prompt to the client over its WebSocket.
+                sess = self.sessions.get(sid)
+                if sess is not None and sess.ws is not None:
+                    try:
+                        from ai_runtime.streaming import PermissionEvent
+
+                        await sess.ws.send_text(
+                            PermissionEvent(
+                                request_id=request_id,
+                                action=f"{tool_name}({param_str})",
+                                detail={"tool": tool_name, "params": param_str},
+                            ).model_dump_json()
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.exception("Failed to send permission prompt for %s", sid)
+                # Await the user's answer (resolved by the WebSocket handler
+                # when it receives the `permission_response` action).
+                try:
+                    return await future
+                except Exception:  # noqa: BLE001
+                    return False
+
+            return _on_ask
+
+        executor = GuardedToolExecutor(
+            base_executor,
             project.permission_policy,
+            on_ask=_make_on_ask(session_id),
         )
         agent = Agent(
             name=f"{project.name}-agent",
@@ -326,12 +401,16 @@ class Manager:
         project = self.projects.get(project_name)
         if project is None:
             project = self.create_project(self.config.default_project_root, project_name)
+        # Generate the session id first so the guarded executor can route
+        # permission prompts back to this exact WebSocket session.
+        session_id = uuid.uuid4().hex[:12]
         agent = self._build_agent(
-            project, system_prompt, provider, model, api_key, base_url, reasoning_effort, thinking_enabled
+            project, system_prompt, provider, model, api_key, base_url,
+            reasoning_effort, thinking_enabled, session_id=session_id,
         )
         runner = AgentRunner(agent)
         session = Session(
-            id=uuid.uuid4().hex[:12],
+            id=session_id,
             project=project,
             agent=agent,
             runner=runner,
@@ -415,6 +494,7 @@ class Manager:
             session.base_url,
             session.reasoning_effort,
             session.thinking_enabled,
+            session_id=session.id,
         )
         session.agent.provider = new_agent.provider
         session.agent.tool_executor = new_agent.tool_executor
@@ -454,6 +534,7 @@ class Manager:
                 session.base_url,
                 session.reasoning_effort,
                 session.thinking_enabled,
+                session_id=session.id,
             )
             session.agent.provider = new_agent.provider
             session.agent.tool_executor = new_agent.tool_executor

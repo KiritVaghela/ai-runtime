@@ -4,7 +4,6 @@ import json
 import re
 from typing import Any, Callable
 
-from ai_runtime.conversation import ChatMessage
 
 from .stage import ExecutionStage
 from ..context import ExecutionContext

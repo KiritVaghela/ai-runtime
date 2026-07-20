@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
@@ -23,7 +22,6 @@ class ToolExecutor:
         coro = tool.run(context, input)
         if asyncio.iscoroutine(coro):
             try:
-                start = time.time()
                 if timeout:
                     result = await asyncio.wait_for(coro, timeout=timeout)
                 else:

@@ -2,7 +2,6 @@ from typing import Any
 
 from ai_runtime.conversation import (
     ChatResponse,
-    ChatMessage,
     ToolCall,
     Usage,
 )

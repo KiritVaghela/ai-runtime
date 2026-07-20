@@ -6,7 +6,6 @@ from .executor import ToolExecutor
 from .permissions import (
     PermissionPolicy,
     PermissionDecision,
-    PermissionError,
     render_params,
 )
 from .tool import ToolResult

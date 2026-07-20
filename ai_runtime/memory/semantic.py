@@ -28,7 +28,7 @@ class SemanticMemory:
         return self._summary
 
     def summarize(self, conversation: Conversation) -> str:
-        recent = conversation.messages[-self._preserve_recent:]
+        # recent = conversation.messages[-self._preserve_recent:]
         prior = conversation.messages[:-self._preserve_recent] if len(
             conversation.messages
         ) > self._preserve_recent else []

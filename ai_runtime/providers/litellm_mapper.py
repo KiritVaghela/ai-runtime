@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from ai_runtime.conversation import (
@@ -71,15 +72,38 @@ class LiteLLMMapper:
         # (e.g. text + image_url blocks), pass it through untouched so
         # vision-capable providers receive content arrays.
         if isinstance(message.content, (list, dict)):
-            return {
+            msg = {
+                "role": message.role.value,
+                "content": message.content,
+            }
+        else:
+            msg = {
                 "role": message.role.value,
                 "content": message.content,
             }
 
-        return {
-            "role": message.role.value,
-            "content": message.content,
-        }
+        # Serialize assistant tool-call requests so the provider sees the
+        # full function-calling context when we re-invoke it with results.
+        if message.tool_calls:
+            msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.name,
+                        "arguments": tc.arguments
+                        if isinstance(tc.arguments, str)
+                        else json.dumps(tc.arguments or {}),
+                    },
+                }
+                for tc in message.tool_calls
+            ]
+
+        # Link tool-result messages back to their originating call.
+        if message.tool_call_id is not None:
+            msg["tool_call_id"] = message.tool_call_id
+
+        return msg
 
     @staticmethod
     def from_response(
