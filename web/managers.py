@@ -39,7 +39,11 @@ class Session:
     runner: AgentRunner
     name: str = "New chat"
     named: bool = False
-    mode: str = "chat"  # chat | plan — per-session
+    # High-level agent mode selected by the user: ask | plan | agent.
+    # The actual transport (stream/chat) is resolved at agent-build time and
+    # stored in `transport` so the WS handler knows how to run the turn.
+    mode: str = "agent"  # ask | plan | agent
+    transport: str = "stream"  # stream | chat | plan — resolved from provider
     # Per-session provider settings (fall back to Manager.config when unset).
     provider: str | None = None
     model: str | None = None
@@ -300,6 +304,7 @@ class Manager:
         reasoning_effort: str | None = None,
         thinking_enabled: bool = False,
         session_id: str | None = None,
+        agent_mode: str = "agent",
     ) -> Agent:
         # Per-session provider settings override the global config default.
         provider = provider or self.config.provider
@@ -312,6 +317,19 @@ class Manager:
         # Per-session thinking flag overrides the global config default.
         if thinking_enabled is None:
             thinking_enabled = self.config.thinking_enabled
+        # Normalize the high-level agent mode (ask | plan | agent).
+        from ai_runtime.agents.modes import AgentMode
+
+        try:
+            amode = AgentMode(agent_mode)
+        except ValueError:
+            amode = AgentMode.AGENT
+        # Resolve the actual transport (stream/chat/plan) from provider caps.
+        transport = amode.transport_mode(getattr(self.registry, "capabilities", None))
+        if session_id is not None:
+            sess = self.sessions.get(session_id)
+            if sess is not None:
+                sess.transport = transport
         # Build a real provider instance (not just a config) via the registry.
         cfg = ProviderConfig(
             provider=ProviderType(provider),
@@ -326,6 +344,10 @@ class Manager:
         except Exception as e:  # noqa: BLE001
             logger.exception("Failed to create provider for %s", self.config.provider)
             raise RuntimeError(f"Provider creation failed: {e}") from e
+
+        # Tools are only exposed in Agent mode. Ask/Plan get an empty registry
+        # so the model cannot request tool calls.
+        tool_registry = project.tool_registry if amode.uses_tools else None
 
         # Guarded executor enforces the project's permission policy.
         # When the policy says ASK, pause and prompt the user over the
@@ -379,8 +401,9 @@ class Manager:
             name=f"{project.name}-agent",
             provider=provider,
             system_prompt=project.as_system_prompt(system_prompt),
-            tool_registry=project.tool_registry,
+            tool_registry=tool_registry,
             memory_store=project.memory_store,
+            agent_mode=amode,
         )
         agent.tool_executor = executor
         return agent
@@ -396,17 +419,25 @@ class Manager:
         base_url: str | None = None,
         reasoning_effort: str | None = None,
         thinking_enabled: bool = False,
-        mode: str = "chat",
+        mode: str = "agent",
     ) -> Session:
         project = self.projects.get(project_name)
         if project is None:
             project = self.create_project(self.config.default_project_root, project_name)
+        # Normalize the high-level agent mode (ask | plan | agent).
+        from ai_runtime.agents.modes import AgentMode
+
+        try:
+            amode = AgentMode(mode)
+        except ValueError:
+            amode = AgentMode.AGENT
         # Generate the session id first so the guarded executor can route
         # permission prompts back to this exact WebSocket session.
         session_id = uuid.uuid4().hex[:12]
         agent = self._build_agent(
             project, system_prompt, provider, model, api_key, base_url,
             reasoning_effort, thinking_enabled, session_id=session_id,
+            agent_mode=amode.value,
         )
         runner = AgentRunner(agent)
         session = Session(
@@ -422,7 +453,10 @@ class Manager:
             base_url=base_url,
             reasoning_effort=reasoning_effort,
             thinking_enabled=thinking_enabled,
-            mode=mode if mode in ("chat", "plan") else "chat",
+            mode=amode.value,
+            transport=agent.transport_mode(getattr(self.registry, "capabilities", None))
+            if hasattr(agent, "transport_mode")
+            else ("plan" if amode is AgentMode.PLAN else "stream"),
         )
         self.sessions[session.id] = session
         self._save_session(session)
@@ -462,9 +496,35 @@ class Manager:
         session = self.sessions.get(session_id)
         if session is None:
             return None
-        if mode not in ("chat", "plan"):
-            mode = "chat"
-        session.mode = mode
+        from ai_runtime.agents.modes import AgentMode
+
+        try:
+            amode = AgentMode(mode)
+        except ValueError:
+            amode = AgentMode.AGENT
+        # Rebuild the agent so tools/transport reflect the new agent mode.
+        new_agent = self._build_agent(
+            session.project,
+            session.agent.system_prompt,
+            session.provider,
+            session.model,
+            session.api_key,
+            session.base_url,
+            session.reasoning_effort,
+            session.thinking_enabled,
+            session_id=session_id,
+            agent_mode=amode.value,
+        )
+        session.agent.provider = new_agent.provider
+        session.agent.tool_executor = new_agent.tool_executor
+        session.agent.agent_mode = amode
+        session.agent.tool_registry = new_agent.tool_registry
+        session.mode = amode.value
+        session.transport = new_agent.transport_mode(
+            getattr(self.registry, "capabilities", None)
+        ) if hasattr(new_agent, "transport_mode") else (
+            "plan" if amode is AgentMode.PLAN else "stream"
+        )
         self._save_session(session)
         return session
 

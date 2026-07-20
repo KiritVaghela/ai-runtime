@@ -224,8 +224,17 @@ async function deleteSession(id) {
 }
 
 function currentMode() {
-  if (currentSession && sessionMeta[currentSession]) return sessionMeta[currentSession].mode || "chat";
-  return pendingSettings.mode || "chat";
+  if (currentSession && sessionMeta[currentSession]) return sessionMeta[currentSession].mode || "agent";
+  return pendingSettings.mode || "agent";
+}
+// The actual transport (stream/chat) used for the current turn. The server
+// resolves this from provider capabilities; we mirror it for the WS payload.
+function currentTransport() {
+  const m = currentMode();
+  if (m === "plan") return "plan";
+  // Ask/Agent use stream when supported, else chat. The server is authoritative,
+  // but we default to stream (the common case) for the payload hint.
+  return "stream";
 }
 function currentEffort() {
   if (currentSession && sessionMeta[currentSession]) return sessionMeta[currentSession].reasoning_effort || null;
@@ -239,7 +248,7 @@ function currentThinking() {
 function syncModeToggle() {
   const mode = currentMode();
   const label = $("#settings-trigger-label");
-  if (label) label.textContent = mode === "plan" ? "Plan" : "Chat";
+  if (label) label.textContent = mode === "plan" ? "Plan" : mode === "ask" ? "Ask" : "Agent";
   document.querySelectorAll('.menu-item[data-menu="mode"]').forEach((b) => {
     b.setAttribute("aria-checked", String(b.dataset.value === mode));
   });
@@ -1249,7 +1258,14 @@ async function send() {
 }
 
 function streamMessage(text, mode, action, atts = []) {
-  const payload = { action, message: text, mode, reasoning_effort: currentEffort() };
+  const payload = {
+    action,
+    message: text,
+    mode, // high-level agent mode: ask | plan | agent
+    agent_mode: mode,
+    transport: currentTransport(),
+    reasoning_effort: currentEffort(),
+  };
   if (atts && atts.length) payload.attachments = atts;
   if (ws && ws.readyState === WebSocket.OPEN) {
     setStreaming(true);
@@ -1941,8 +1957,9 @@ let ALL_COMMANDS = [];
 const PALETTE_COMMANDS = [
   { label: "New chat", run: () => startNewChat() },
   { label: "Toggle theme", run: () => $("#theme-toggle").click() },
-  { label: "Chat mode", run: () => setMode("chat") },
+  { label: "Ask mode", run: () => setMode("ask") },
   { label: "Plan mode", run: () => setMode("plan") },
+  { label: "Agent mode", run: () => setMode("agent") },
   { label: "Toggle thinking", run: () => setSessionSettings({ thinking_enabled: !currentThinking() }) },
   { label: "Export conversation", run: () => $("#export-btn").click() },
   { label: "Clear context (/clear)", run: () => runSlash("clear") },

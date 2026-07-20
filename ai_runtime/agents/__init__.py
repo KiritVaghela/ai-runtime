@@ -3,6 +3,7 @@
 from .agent import Agent
 from .runner import AgentRunner
 from .subagent import SubAgentSpec, SubAgentResult
+from .modes import AgentMode, AGENT_MODES
 from .types import (
     WorkflowStep,
     WorkflowAgent,
@@ -30,6 +31,8 @@ __all__ = [
     "AgentRunner",
     "SubAgentSpec",
     "SubAgentResult",
+    "AgentMode",
+    "AGENT_MODES",
     "WorkflowStep",
     "WorkflowAgent",
     "Route",

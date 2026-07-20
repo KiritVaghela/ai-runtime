@@ -267,7 +267,7 @@ async def set_mode(session_id: str, req: SetModeReq):
     session = manager.set_session_mode(session_id, req.mode)
     if session is None:
         raise HTTPException(404, "session not found")
-    return {"session_id": session.id, "mode": session.mode}
+    return {"session_id": session.id, "mode": session.mode, "transport": session.transport}
 
 
 class SessionSettingsReq(BaseModel):
@@ -478,6 +478,10 @@ async def ws_chat(websocket: WebSocket, session_id: str):
     async def _stream_turn(prompt: str, mode: str, effort: str | None = None, atts: list | None = None, send_done: bool = True, record_user: bool = True):
         """Stream a single turn, recording events into history.
 
+        `mode` is the high-level agent mode (ask | plan | agent) stored on the
+        session. Plan mode uses the read-only planner; ask/agent use the
+        streaming runner (transport resolved at agent-build time).
+
         IMPORTANT: this launches the stream as a background task and returns
         immediately. The surrounding `while True` receive loop keeps reading
         client messages (including `permission_response`) so that a tool
@@ -492,7 +496,9 @@ async def ws_chat(websocket: WebSocket, session_id: str):
         """
         nonlocal current_task
         atts = atts or []
-        if mode == "plan":
+        # Use the session's stored agent mode as the source of truth.
+        agent_mode = session.mode or mode
+        if agent_mode == "plan":
             session.history.append({"type": "user", "content": prompt, "attachments": atts})
 
             async def _plan():
@@ -567,7 +573,8 @@ async def ws_chat(websocket: WebSocket, session_id: str):
             data = await websocket.receive_json()
             action = data.get("action", "send")
             message = data.get("message", "")
-            mode = data.get("mode", "chat")
+            # Agent mode (ask | plan | agent); fall back to the session's mode.
+            mode = data.get("mode") or (session.mode if session else "agent")
             effort = data.get("reasoning_effort", None)
             attachments = data.get("attachments", []) or []
 

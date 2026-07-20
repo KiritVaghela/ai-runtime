@@ -5,6 +5,38 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-07-20
+
+### Added
+- **Three high-level agent modes** (`ai_runtime.agents.modes.AgentMode`):
+  `ask`, `plan`, and `agent`. Each maps to a low-level execution transport
+  (chat/stream/plan) plus a capability profile.
+  - **Ask** — query/answer with no tools (stream, or chat fallback).
+  - **Plan** — read-only planning via plan mode; no execution, no tools.
+  - **Agent** — full capabilities (tools, sub-agents, skills, hooks,
+    permissions); streaming by default, chat fallback when unsupported.
+- **Transport resolution**: `AgentMode.transport_mode(capabilities)` resolves
+  the actual transport from the provider's `ProviderCapabilities` (stream when
+  supported, else chat; plan for plan mode). `Agent.transport_mode()` delegates
+  to it.
+- **Tool gating by mode**: Ask/Plan modes automatically receive an empty tool
+  registry so the model cannot request tool calls; Agent mode keeps the full
+  registry.
+- **Web UI mode selector**: the settings menu now offers Ask / Plan / Agent
+  (replacing the old Chat / Plan toggle), and the command palette exposes
+  `Ask mode`, `Plan mode`, `Agent mode`.
+- **CLI `--mode`**: now accepts `ask` / `plan` / `agent` (default `agent`),
+  mapping to the resolved transport and capability profile.
+
+### Changed
+- **Web session mode**: `Manager.set_session_mode()` now rebuilds the agent
+  with the chosen agent mode (tools/transport updated accordingly) instead of
+  only toggling `chat`/`plan`. `Session` carries `mode` (ask/plan/agent) and a
+  resolved `transport`.
+- **Web streaming**: `_stream_turn` branches on the session's stored agent mode
+  (`plan` → planner; otherwise → streaming runner) rather than the raw client
+  `mode` string.
+
 ## [0.8.3] - 2026-07-20
 
 ### Added

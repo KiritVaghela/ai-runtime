@@ -90,6 +90,28 @@ Reflexion) are built from. They compose with the existing `Agent`, `Skill`,
     `running` → `completed`/`failed`) so clients can render step status, and is
     recorded on `ExecutionContext.metadata["workflow_steps"]`.
 
+### Agent modes
+
+Every `Agent` carries a high-level `agent_mode` (`ai_runtime.agents.modes`)
+that selects both the low-level execution transport and the capability
+profile. The web UI and CLI expose three modes:
+
+-   **Ask** (`ask`) — simple query/answer with **no tools**. Uses streaming
+    when the provider supports it, otherwise falls back to chat. Mirrors a
+    plain chat completion.
+-   **Plan** (`plan`) — read-only planning. Uses plan mode (no execution, no
+    tools); the model proposes a plan that the user can approve before any
+    action is taken.
+-   **Agent** (`agent`) — full agent: streaming (or chat fallback) with all
+    capabilities enabled by default — tools, sub-agents, skills, hooks, and
+    human-in-the-loop permissions. This is the default.
+
+The transport is resolved at agent-build time from the provider's
+`ProviderCapabilities`: `AgentMode.transport_mode(capabilities)` returns
+`"plan"` for Plan mode, `"chat"` when streaming is unsupported, and
+`"stream"` otherwise. Ask/Plan modes automatically receive an empty tool
+registry so the model cannot request tool calls.
+
 ### Built-in agents, skills & commands
 
 The framework ships ready-to-use presets so you don't have to hand-roll common

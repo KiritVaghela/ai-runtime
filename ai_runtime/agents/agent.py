@@ -5,6 +5,7 @@ from ai_runtime.memory import MemoryStore, InMemoryStore, ConversationMemory
 from ai_runtime.skills import SkillRegistry, ComposedSkills
 from ai_runtime.tools import ToolRegistry, ToolExecutor
 from .subagent import SubAgentSpec
+from .modes import AgentMode
 
 
 class Agent:
@@ -13,6 +14,9 @@ class Agent:
     An `Agent` is a declarative specification. Execution is performed by
     `AgentRunner`, which wires the agent's pieces into the runtime's
     execution pipeline (including the tool-call loop).
+
+    `agent_mode` selects the high-level behavior (Ask / Plan / Agent) and
+    controls whether tools are exposed to the model.
     """
 
     def __init__(
@@ -26,11 +30,15 @@ class Agent:
         skills: list[str] | None = None,
         memory: ConversationMemory | None = None,
         sub_agents: list[SubAgentSpec] | None = None,
+        agent_mode: AgentMode = AgentMode.AGENT,
     ):
         self.name = name
         self.provider = provider
         self.system_prompt = system_prompt
-        self.tool_registry = tool_registry or ToolRegistry()
+        self.agent_mode = agent_mode
+        # Ask / Plan modes expose no tools to the model.
+        effective_registry = tool_registry if agent_mode.uses_tools else ToolRegistry()
+        self.tool_registry = effective_registry
         self.tool_executor = ToolExecutor(self.tool_registry)
         self.memory_store = memory_store or InMemoryStore()
         self.memory = memory or ConversationMemory(self.memory_store, name)
@@ -48,6 +56,14 @@ class Agent:
         if self.skills is not None and self.skills.system_prompt:
             parts.append(self.skills.system_prompt)
         return "\n\n".join(parts) if parts else None
+
+    def transport_mode(self, capabilities=None) -> str:
+        """Resolve the actual transport (stream/chat/plan) for this agent.
+
+        Delegates to the agent mode, falling back to stream when no
+        capabilities are supplied.
+        """
+        return self.agent_mode.transport_mode(capabilities)
 
     def effective_tool_names(self) -> list[str]:
         if self.skills is None:
