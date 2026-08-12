@@ -956,8 +956,26 @@ body {
 .provider-msg.err { color: #ff7a7a; }
 
 /* ---------- Other panels ---------- */
-.panel-head { padding: 1.2rem 1.5rem 0.5rem; }
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.2rem 1.5rem 0.5rem;
+}
 .panel-head h2 { margin: 0; font-size: 1.1rem; }
+.panel-head button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.panel-head button:hover {
+  background: var(--accent-soft);
+}
 .row {
   display: flex;
   gap: 0.5rem;

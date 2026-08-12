@@ -1940,6 +1940,11 @@ async function runBuiltinCommandFromPalette(c) {
 function wireBuiltinPanels() {
   const runBtn = $("#agent-run");
   if (runBtn) runBtn.addEventListener("click", runBuiltinAgent);
+  const createBtn = $("#create-agent-button");
+  if (createBtn) createBtn.addEventListener("click", () => {
+    showToast("Create New Agent clicked", "info");
+    // TODO: open create-agent modal or navigate to agent creation flow.
+  });
   const toggle = $("#self-review-toggle");
   if (toggle) toggle.addEventListener("change", async (e) => {
     if (!currentSession) await newSession();
