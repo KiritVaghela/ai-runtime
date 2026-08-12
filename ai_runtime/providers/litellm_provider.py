@@ -32,17 +32,27 @@ _PROVIDER_CAPABILITIES = {
     ),
     ProviderType.GROQ: ProviderCapabilities(
         tools=True,
+        vision=True,
         structured_output=True,
+        embeddings=True,
+        image_generation=True,
+        transcription=True
     ),
     ProviderType.ANTHROPIC: ProviderCapabilities(
         tools=True,
         vision=True,
-        reasoning=True,
+        structured_output=True,
+        embeddings=True,
+        image_generation=True,
+        transcription=True,
     ),
     ProviderType.OPENROUTER: ProviderCapabilities(
         tools=True,
         vision=True,
         structured_output=True,
+        embeddings=True,
+        image_generation=True,
+        transcription=True,
     ),
     ProviderType.GEMINI: ProviderCapabilities(
         tools=True,
