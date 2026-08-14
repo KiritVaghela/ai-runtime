@@ -262,19 +262,14 @@
       <section id="panel-agents" class="panel">
         <div class="panel-head">
           <h2>Agents</h2>
+        </div>
+        <div class="panel-head">
           <button id="create-agent-button" class="btn btn-primary btn-small">Create New Agent</button>
         </div>
-        <p class="panel-sub">Run a built-in agent preset against a task. The result is returned by the framework's own agent primitives.</p>
+        <p class="panel-sub">Run a built-in or custom agent preset against a task. The result is returned by the framework's own agent primitives.</p>
         <div class="row col">
           <label class="field"><span>Agent</span>
-            <select id="agent-select">
-              <option value="reviewer">Code Reviewer</option>
-              <option value="explainer">Explainer</option>
-              <option value="tester">Test Writer</option>
-              <option value="summarizer">Summarizer</option>
-              <option value="router">Router</option>
-              <option value="critic">Self-Critic</option>
-            </select>
+            <select id="agent-select"></select>
           </label>
           <label class="field"><span>Task</span><textarea id="agent-task" rows="3" placeholder="Paste code to review, a concept to explain, or a task to route…"></textarea></label>
           <button id="agent-run">Run agent</button>

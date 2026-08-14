@@ -212,6 +212,52 @@ async def test_run_builtin_command(client):
 
 
 @pytest.mark.asyncio
+async def test_create_custom_agent(client):
+    res = client.post(
+        "/api/builtin/agents/custom",
+        json={"name": "My Assistant", "description": "A custom helper", "system_prompt": "You are a helpful assistant."},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["name"] == "My Assistant"
+    assert body["description"] == "A custom helper"
+    assert body["system_prompt"] == "You are a helpful assistant."
+    assert body["key"].startswith("my-assistant")
+
+
+@pytest.mark.asyncio
+async def test_update_custom_agent(client):
+    created = client.post(
+        "/api/builtin/agents/custom",
+        json={"name": "My Assistant", "description": "A custom helper", "system_prompt": "You are a helpful assistant."},
+    )
+    key = created.json()["key"]
+    res = client.patch(
+        f"/api/builtin/agents/custom/{key}",
+        json={
+            "name": "My Updated Assistant",
+            "description": "An updated custom helper",
+            "system_prompt": "You are a focused reviewer.",
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["key"] == key
+    assert body["name"] == "My Updated Assistant"
+    assert body["description"] == "An updated custom helper"
+    assert body["system_prompt"] == "You are a focused reviewer."
+
+
+@pytest.mark.asyncio
+async def test_create_custom_agent_missing_name(client):
+    res = client.post(
+        "/api/builtin/agents/custom",
+        json={"name": ""},
+    )
+    assert res.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_run_builtin_command_unknown(client):
     sid = _make_session(client)
     res = client.post(

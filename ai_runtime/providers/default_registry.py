@@ -38,4 +38,9 @@ def create_default_registry():
         LiteLLMProvider
     )
 
+    registry.register(
+        ProviderType.HUGGINGFACE,
+        LiteLLMProvider
+    )
+
     return registry

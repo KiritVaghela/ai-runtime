@@ -1010,6 +1010,38 @@ body {
   word-break: break-word;
 }
 
+.agent-card {
+  padding: 0.7rem 0.9rem;
+}
+
+.agent-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.agent-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-edit-btn {
+  flex-shrink: 0;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.45rem 0.8rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.agent-edit-btn:hover {
+  filter: brightness(1.08);
+}
+
 /* typing indicator */
 .cursor::after {
   content: "▋";
@@ -1296,7 +1328,40 @@ body { font-size: var(--font-size); }
   padding: 0.45rem 1rem;
   cursor: pointer;
 }
+.prompt-actions .secondary,
 .prompt-actions #prompt-cancel { background: var(--panel); color: var(--fg); border: 1px solid var(--border); }
+
+.agent-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0 1rem 0.25rem;
+}
+.agent-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--fg);
+  font-size: 0.82rem;
+}
+.agent-form-field span {
+  color: var(--muted);
+}
+.agent-form-field input,
+.agent-form-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.7rem;
+  font: inherit;
+  resize: vertical;
+}
+.agent-form-field textarea {
+  min-height: 96px;
+}
 
 /* ---------- Tool permission prompt ---------- */
 .perm-box { max-width: 460px; }

@@ -979,6 +979,18 @@ class BuiltinAgentReq(BaseModel):
     task: str
 
 
+class CreateCustomAgentReq(BaseModel):
+    name: str
+    description: str | None = None
+    system_prompt: str | None = None
+
+
+class UpdateCustomAgentReq(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    system_prompt: str | None = None
+
+
 class BuiltinCommandReq(BaseModel):
     session_id: str
     name: str
@@ -998,6 +1010,32 @@ class SelfReviewReq(BaseModel):
 @app.get("/api/builtin/agents")
 async def list_builtin_agents():
     return {"agents": manager.list_builtin_agents()}
+
+
+@app.post("/api/builtin/agents/custom")
+async def create_custom_agent(req: CreateCustomAgentReq):
+    if not req.name or not req.name.strip():
+        raise HTTPException(400, "Custom agent name is required")
+    agent = manager.create_custom_agent(req.name.strip(), req.description, req.system_prompt)
+    return agent
+
+
+@app.patch("/api/builtin/agents/custom/{agent_key}")
+async def update_custom_agent(agent_key: str, req: UpdateCustomAgentReq):
+    if req.name is not None and not req.name.strip():
+        raise HTTPException(400, "Custom agent name is required")
+    try:
+        agent = manager.update_custom_agent(
+            agent_key,
+            name=req.name.strip() if req.name is not None else None,
+            description=req.description,
+            system_prompt=req.system_prompt,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if agent is None:
+        raise HTTPException(404, "custom agent not found")
+    return agent
 
 
 @app.get("/api/builtin/skills")

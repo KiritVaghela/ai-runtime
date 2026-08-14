@@ -1756,21 +1756,69 @@ $("#set-effort").addEventListener("change", (e) => { pendingSettings.reasoning_e
 $("#set-thinking").addEventListener("change", (e) => { pendingSettings.thinking_enabled = e.target.checked; syncSettingsToggle(); });
 
 // ---- Built-in agents / skills panels (v0.8.1) ----
+const DEFAULT_AGENT_CATALOG = [
+  { key: "reviewer", name: "Code Reviewer", description: "Senior reviewer that critiques changes for correctness and risks." },
+  { key: "explainer", name: "Explainer", description: "Explains code and concepts clearly with examples." },
+  { key: "tester", name: "Test Writer", description: "Generates focused, runnable unit tests." },
+  { key: "summarizer", name: "Summarizer", description: "Condenses conversations and transcripts." },
+  { key: "router", name: "Router", description: "Intent dispatcher that routes work to review/explain/test specialists." },
+  { key: "critic", name: "Self-Critic", description: "Reflexion loop that self-reviews generated output before returning." },
+];
+
 async function loadBuiltins() {
+  const requests = [
+    ["agents", "/api/builtin/agents", "agents"],
+    ["skills", "/api/builtin/skills", "skills"],
+    ["commands", "/api/builtin/commands", "commands"],
+  ];
+
+  const results = await Promise.allSettled(
+    requests.map(([name, path, key]) => api("GET", path).then((data) => ({ name, key, data })))
+  );
+
+  const agents = results[0]?.status === "fulfilled" && Array.isArray(results[0].value.data?.agents)
+    ? results[0].value.data.agents
+    : DEFAULT_AGENT_CATALOG;
+  const skills = results[1]?.status === "fulfilled" && Array.isArray(results[1].value.data?.skills)
+    ? results[1].value.data.skills
+    : [];
+  const commands = results[2]?.status === "fulfilled" && Array.isArray(results[2].value.data?.commands)
+    ? results[2].value.data.commands
+    : [];
+
+  results.forEach((result) => {
+    if (result.status === "rejected") {
+      console.warn("Failed to load built-ins catalog entry", result.reason);
+    }
+  });
+
+  renderAgentList(agents);
+  renderAgentOptions(agents);
+  renderSkillList(skills);
+  renderCommandPalette(commands);
+  // If the user already typed "/" before the catalog loaded, refresh the
+  // slash menu now that ALL_COMMANDS is populated.
+  if ($("#input").value.startsWith("/")) updateSlashMenu();
+}
+
+async function editCustomAgent(agent) {
+  if (!agent || !agent.custom) return;
+  const payload = await promptCustomAgentModal({
+    title: "Edit custom agent",
+    initial: {
+      name: agent.name || "",
+      description: agent.description || "",
+      system_prompt: agent.system_prompt || "",
+    },
+  });
+  if (!payload) return;
+
   try {
-    const [agents, skills, commands] = await Promise.all([
-      api("GET", "/api/builtin/agents"),
-      api("GET", "/api/builtin/skills"),
-      api("GET", "/api/builtin/commands"),
-    ]);
-    renderAgentList(agents.agents || []);
-    renderSkillList(skills.skills || []);
-    renderCommandPalette(commands.commands || []);
-    // If the user already typed "/" before the catalog loaded, refresh the
-    // slash menu now that ALL_COMMANDS is populated.
-    if ($("#input").value.startsWith("/")) updateSlashMenu();
+    const updated = await api("PATCH", `/api/builtin/agents/custom/${encodeURIComponent(agent.key)}`, payload);
+    showToast(`Custom agent "${updated.name}" updated`, "info");
+    await loadBuiltins();
   } catch (e) {
-    console.warn("Failed to load built-ins", e);
+    showToast("Error: " + e.message, "error");
   }
 }
 
@@ -1778,11 +1826,47 @@ function renderAgentList(agents) {
   const list = $("#agent-list");
   if (!list) return;
   list.innerHTML = "";
-  agents.forEach((a) => {
+  const safeAgents = Array.isArray(agents) && agents.length ? agents : DEFAULT_AGENT_CATALOG;
+  safeAgents.forEach((a) => {
     const li = document.createElement("li");
-    li.className = "card";
-    li.innerHTML = `<div class="card-title">${a.name}</div><div class="card-desc">${a.description}</div>`;
+    li.className = "card agent-card";
+    li.style.cursor = a.custom ? "pointer" : "default";
+
+    const row = document.createElement("div");
+    row.className = "agent-card-row";
+
+    const content = document.createElement("div");
+    content.className = "agent-card-content";
+    content.innerHTML = `<div class="card-title">${a.name}</div><div class="card-desc">${a.description}</div>`;
+    row.appendChild(content);
+
+    if (a.custom) {
+      const btn = document.createElement("button");
+      btn.className = "agent-edit-btn";
+      btn.textContent = "Edit";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        editCustomAgent(a);
+      });
+      row.appendChild(btn);
+      li.addEventListener("click", () => editCustomAgent(a));
+    }
+
+    li.appendChild(row);
     list.appendChild(li);
+  });
+}
+
+function renderAgentOptions(agents) {
+  const select = $("#agent-select");
+  if (!select) return;
+  const safeAgents = Array.isArray(agents) && agents.length ? agents : DEFAULT_AGENT_CATALOG;
+  select.innerHTML = "";
+  safeAgents.forEach((a) => {
+    const opt = document.createElement("option");
+    opt.value = a.key;
+    opt.textContent = a.name;
+    select.appendChild(opt);
   });
 }
 
@@ -1941,9 +2025,16 @@ function wireBuiltinPanels() {
   const runBtn = $("#agent-run");
   if (runBtn) runBtn.addEventListener("click", runBuiltinAgent);
   const createBtn = $("#create-agent-button");
-  if (createBtn) createBtn.addEventListener("click", () => {
-    showToast("Create New Agent clicked", "info");
-    // TODO: open create-agent modal or navigate to agent creation flow.
+  if (createBtn) createBtn.addEventListener("click", async () => {
+    const payload = await promptCustomAgentModal({ title: "Create custom agent" });
+    if (!payload) return;
+    try {
+      await api("POST", "/api/builtin/agents/custom", payload);
+      showToast(`Custom agent "${payload.name}" created`, "info");
+      await loadBuiltins();
+    } catch (e) {
+      showToast("Error: " + e.message, "error");
+    }
   });
   const toggle = $("#self-review-toggle");
   if (toggle) toggle.addEventListener("change", async (e) => {
@@ -2007,26 +2098,119 @@ function closePalette() { $("#palette").classList.add("hidden"); }
 $("#palette-input").addEventListener("input", (e) => renderPalette(e.target.value));
 $("#palette").addEventListener("click", (e) => { if (e.target.id === "palette") closePalette(); });
 
+function escapeHtml(value) {
+  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function promptCustomAgentModal({ title = "Create custom agent", initial = {} } = {}) {
+  return new Promise((resolve) => {
+    const modal = $("#prompt-modal");
+    const box = modal.querySelector(".palette-box");
+    const nameValue = initial.name || "";
+    const descriptionValue = initial.description || "";
+    const systemValue = initial.system_prompt || "";
+
+    box.innerHTML = `
+      <div id="prompt-title" class="prompt-title">${escapeHtml(title)}</div>
+      <div class="agent-form">
+        <label class="agent-form-field">
+          <span>Name</span>
+          <input id="agent-form-name" type="text" value="${escapeHtml(nameValue)}" />
+        </label>
+        <label class="agent-form-field">
+          <span>Description</span>
+          <textarea id="agent-form-description" rows="2">${escapeHtml(descriptionValue)}</textarea>
+        </label>
+        <label class="agent-form-field">
+          <span>System prompt</span>
+          <textarea id="agent-form-system-prompt" rows="6">${escapeHtml(systemValue)}</textarea>
+        </label>
+      </div>
+      <div class="prompt-actions">
+        <button id="prompt-ok" type="button">Save</button>
+        <button id="prompt-cancel" type="button" class="secondary">Cancel</button>
+      </div>
+    `;
+
+    const nameInput = $("#agent-form-name");
+    const descriptionInput = $("#agent-form-description");
+    const systemInput = $("#agent-form-system-prompt");
+    const ok = $("#prompt-ok");
+    const cancel = $("#prompt-cancel");
+
+    modal.classList.remove("hidden");
+    nameInput.focus();
+    nameInput.select();
+
+    const cleanup = () => {
+      modal.classList.add("hidden");
+      ok.removeEventListener("click", onOk);
+      cancel.removeEventListener("click", onCancel);
+      modal.removeEventListener("click", onBackdrop);
+      [nameInput, descriptionInput, systemInput].forEach((el) => el.removeEventListener("keydown", onKey));
+    };
+
+    const onOk = () => {
+      const name = nameInput.value.trim();
+      const description = descriptionInput.value.trim();
+      const system_prompt = systemInput.value.trim();
+
+      if (!name) {
+        showToast("Agent name is required", "error");
+        nameInput.focus();
+        return;
+      }
+
+      cleanup();
+      resolve({ name, description, system_prompt });
+    };
+
+    const onCancel = () => { cleanup(); resolve(null); };
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); onOk(); }
+    };
+    const onBackdrop = (e) => { if (e.target.id === "prompt-modal") onCancel(); };
+
+    ok.addEventListener("click", onOk);
+    cancel.addEventListener("click", onCancel);
+    [nameInput, descriptionInput, systemInput].forEach((el) => el.addEventListener("keydown", onKey));
+    modal.addEventListener("click", onBackdrop);
+  });
+}
+
 // Inline prompt modal — a `window.prompt` replacement that works in the
 // browser (the native prompt() is unsupported in this embedding).
 function promptModal(title, defaultValue = "") {
   return new Promise((resolve) => {
     const modal = $("#prompt-modal");
-    const input = $("#prompt-input");
+    const box = modal.querySelector(".palette-box");
+    const input = document.createElement("input");
+    input.id = "prompt-input";
+    input.value = defaultValue;
+    box.innerHTML = `
+      <div id="prompt-title" class="prompt-title">${escapeHtml(title)}</div>
+      <input id="prompt-input" value="${escapeHtml(defaultValue)}" />
+      <div class="prompt-actions">
+        <button id="prompt-ok" type="button">OK</button>
+        <button id="prompt-cancel" type="button" class="secondary">Cancel</button>
+      </div>
+    `;
     const titleEl = $("#prompt-title");
     titleEl.textContent = title;
-    input.value = defaultValue;
+    const inputEl = $("#prompt-input");
+    inputEl.value = defaultValue;
     modal.classList.remove("hidden");
-    input.focus();
-    input.select();
+    inputEl.focus();
+    inputEl.select();
     const cleanup = () => {
       modal.classList.add("hidden");
       $("#prompt-ok").removeEventListener("click", onOk);
       $("#prompt-cancel").removeEventListener("click", onCancel);
-      input.removeEventListener("keydown", onKey);
+      inputEl.removeEventListener("keydown", onKey);
       modal.removeEventListener("click", onBackdrop);
     };
-    const onOk = () => { cleanup(); resolve(input.value); };
+    const onOk = () => { cleanup(); resolve(inputEl.value); };
     const onCancel = () => { cleanup(); resolve(null); };
     const onKey = (e) => {
       if (e.key === "Enter") { e.preventDefault(); onOk(); }
@@ -2035,7 +2219,7 @@ function promptModal(title, defaultValue = "") {
     const onBackdrop = (e) => { if (e.target.id === "prompt-modal") onCancel(); };
     $("#prompt-ok").addEventListener("click", onOk);
     $("#prompt-cancel").addEventListener("click", onCancel);
-    input.addEventListener("keydown", onKey);
+    inputEl.addEventListener("keydown", onKey);
     modal.addEventListener("click", onBackdrop);
   });
 }

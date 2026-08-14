@@ -62,6 +62,14 @@ _PROVIDER_CAPABILITIES = {
     ProviderType.OLLAMA: ProviderCapabilities(
         tools=True,
     ),
+    ProviderType.HUGGINGFACE: ProviderCapabilities(
+        tools=True,
+        vision=True,
+        structured_output=True,
+        embeddings=True,
+        image_generation=True,
+        transcription=True,
+    ),
 }
 
 class LiteLLMProvider(BaseProvider):

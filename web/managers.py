@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -72,6 +73,7 @@ class Manager:
         self.registry = create_default_registry()
         self.projects: dict[str, Project] = {}
         self.sessions: dict[str, Session] = {}
+        self.custom_agents: list[dict[str, Any]] = []
         self.background = BackgroundTaskRegistry()
         self.hooks = HookRegistry()
         # Pending human-in-the-loop permission requests, keyed by request id.
@@ -290,6 +292,52 @@ class Manager:
 
     def get_project(self, name: str) -> Project | None:
         return self.projects.get(name)
+
+    def _normalize_custom_agent_key(self, name: str) -> str:
+        base = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+        if not base:
+            base = "custom-agent"
+        key = base
+        index = 1
+        builtin_keys = {a["key"] for a in self.list_builtin_agents()}
+        while key in builtin_keys or any(a["key"] == key for a in self.custom_agents):
+            index += 1
+            key = f"{base}-{index}"
+        return key
+
+    def create_custom_agent(self, name: str, description: str | None = None, system_prompt: str | None = None) -> dict[str, Any]:
+        key = self._normalize_custom_agent_key(name)
+        custom = {
+            "key": key,
+            "name": name,
+            "description": description or "User-defined custom agent.",
+            "system_prompt": system_prompt,
+            "custom": True,
+        }
+        self.custom_agents.append(custom)
+        return custom
+
+    def update_custom_agent(
+        self,
+        key: str,
+        name: str | None = None,
+        description: str | None = None,
+        system_prompt: str | None = None,
+    ) -> dict[str, Any] | None:
+        custom = next((a for a in self.custom_agents if a["key"] == key), None)
+        if custom is None:
+            return None
+        if name is not None:
+            normalized = name.strip()
+            if not normalized:
+                raise ValueError("Custom agent name is required")
+            custom["name"] = normalized
+        if description is not None:
+            custom["description"] = description or "User-defined custom agent."
+        if system_prompt is not None:
+            custom["system_prompt"] = system_prompt
+        custom["custom"] = True
+        return custom
 
     # ---- Agents / Sessions ----
 
@@ -626,14 +674,16 @@ class Manager:
 
     def list_builtin_agents(self) -> list[dict[str, Any]]:
         """Catalog of built-in agent presets the UI can instantiate."""
-        return [
-            {"key": "reviewer", "name": "Code Reviewer", "description": "Senior reviewer that critiques changes for correctness and risks."},
-            {"key": "explainer", "name": "Explainer", "description": "Explains code and concepts clearly with examples."},
-            {"key": "tester", "name": "Test Writer", "description": "Generates focused, runnable unit tests."},
-            {"key": "summarizer", "name": "Summarizer", "description": "Condenses conversations and transcripts."},
-            {"key": "router", "name": "Router", "description": "Intent dispatcher that routes work to review/explain/test specialists."},
-            {"key": "critic", "name": "Self-Critic", "description": "Reflexion loop that self-reviews generated output before returning."},
+        builtin = [
+            {"key": "reviewer", "name": "Code Reviewer", "description": "Senior reviewer that critiques changes for correctness and risks.", "custom": False},
+            {"key": "explainer", "name": "Explainer", "description": "Explains code and concepts clearly with examples.", "custom": False},
+            {"key": "tester", "name": "Test Writer", "description": "Generates focused, runnable unit tests.", "custom": False},
+            {"key": "summarizer", "name": "Summarizer", "description": "Condenses conversations and transcripts.", "custom": False},
+            {"key": "router", "name": "Router", "description": "Intent dispatcher that routes work to review/explain/test specialists.", "custom": False},
+            {"key": "critic", "name": "Self-Critic", "description": "Reflexion loop that self-reviews generated output before returning.", "custom": False},
         ]
+        custom = [{**agent, "custom": True} for agent in self.custom_agents]
+        return builtin + custom
 
     def list_builtin_skills(self) -> list[dict[str, Any]]:
         """Catalog of built-in skills the UI can compose into a session."""
@@ -681,6 +731,7 @@ class Manager:
         self._save_session(session)
         return {"ok": True, "self_review": bool(enabled)}
 
+
     async def run_builtin_agent(self, session: Session, agent_key: str, task: str) -> dict[str, Any]:
         """Run a built-in agent preset against `task`, returning its output.
 
@@ -697,6 +748,18 @@ class Manager:
         )
 
         provider = session.agent.provider
+        custom = next((a for a in self.custom_agents if a["key"] == agent_key), None)
+        if custom is not None:
+            agent = Agent(
+                name=custom["name"],
+                provider=provider,
+                system_prompt=custom.get("system_prompt"),
+                tool_registry=session.project.tool_registry,
+                memory_store=session.project.memory_store,
+            )
+            resp = await AgentRunner(agent).run(task)
+            return {"agent": agent_key, "output": resp.message.content or ""}
+
         if agent_key == "reviewer":
             agent = reviewer_agent(provider)
         elif agent_key == "explainer":
@@ -713,8 +776,6 @@ class Manager:
             return {"agent": agent_key, "output": result.message.content or ""}
         else:
             raise KeyError(f"Unknown built-in agent: {agent_key}")
-
-        from ai_runtime.agents import AgentRunner
 
         resp = await AgentRunner(agent).run(task)
         return {"agent": agent_key, "output": resp.message.content or ""}
