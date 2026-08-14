@@ -95,6 +95,29 @@ async def test_list_builtin_commands(client):
 
 
 @pytest.mark.asyncio
+async def test_provider_requires_validation_before_save(client, monkeypatch):
+    import web.app as web_app
+
+    def fail_validation(*args, **kwargs):
+        raise ValueError("bad api key")
+
+    monkeypatch.setattr(web_app.manager, "validate_provider", fail_validation)
+
+    res = client.post(
+        "/api/provider",
+        json={
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "api_key": "bad-key",
+            "base_url": "https://example.com",
+        },
+    )
+
+    assert res.status_code == 400
+    assert "bad api key" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_run_builtin_specialist_agent(client):
     sid = _make_session(client)
     res = client.post(

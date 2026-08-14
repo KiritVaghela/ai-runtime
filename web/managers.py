@@ -609,6 +609,44 @@ class Manager:
         self._save_session(session)
         return session
 
+    async def validate_provider(
+        self,
+        provider: str,
+        model: str,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        reasoning_effort: str | None = None,
+    ) -> dict[str, str]:
+        """Validate a provider by creating it and making a single minimal chat call."""
+        cfg = ProviderConfig(
+            provider=ProviderType(provider),
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            reasoning_effort=reasoning_effort,
+        )
+        try:
+            runtime_provider = self.registry.create(cfg)
+        except Exception as e:  # noqa: BLE001
+            raise ValueError(f"Provider creation failed: {e}") from e
+
+        try:
+            request = ChatMessage.user("Reply with OK")
+            response = await runtime_provider.chat(
+                __import__("ai_runtime.conversation", fromlist=["ChatRequest"]).ChatRequest(
+                    messages=[request],
+                    max_tokens=8,
+                    temperature=0.0,
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            raise ValueError(f"Provider validation failed: {type(e).__name__}: {e}") from e
+
+        content = (response.message.content or "").strip() if getattr(response, "message", None) else ""
+        if not content:
+            raise ValueError("Provider validation succeeded but returned an empty response.")
+        return {"provider": provider, "model": model, "reply": content}
+
     def set_provider(
         self,
         provider: str,

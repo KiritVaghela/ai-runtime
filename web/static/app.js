@@ -1598,7 +1598,7 @@ $("#provider-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const msg = $("#provider-msg");
   msg.className = "provider-msg";
-  msg.textContent = "Switching…";
+  msg.textContent = "Validating provider…";
   try {
     const res = await api("POST", "/api/provider", {
       provider: $("#prov-provider").value,
@@ -1610,11 +1610,11 @@ $("#provider-form").addEventListener("submit", async (e) => {
     managerProvider = res.provider;
     managerModel = res.model;
     msg.className = "provider-msg ok";
-    msg.textContent = `Switched to ${res.provider} / ${res.model}.`;
+    msg.textContent = res.validation_message || `Validated and switched to ${res.provider} / ${res.model}.`;
     clearRateLimit();
   } catch (err) {
     msg.className = "provider-msg err";
-    msg.textContent = "Switch failed: " + err.message;
+    msg.textContent = "Validation failed: " + err.message;
   }
 });
 

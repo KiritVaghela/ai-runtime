@@ -405,16 +405,25 @@ async def get_provider():
 @app.post("/api/provider")
 async def set_provider(req: ProviderReq):
     try:
+        validation = await manager.validate_provider(
+            req.provider,
+            req.model,
+            req.api_key,
+            req.base_url,
+            req.reasoning_effort,
+        )
         manager.set_provider(
             req.provider, req.model, req.api_key, req.base_url, req.reasoning_effort
         )
     except Exception as e:  # noqa: BLE001
-        logger.exception("Failed to switch provider")
-        raise HTTPException(400, f"Provider switch failed: {type(e).__name__}: {e}")
+        logger.exception("Failed to validate and switch provider")
+        raise HTTPException(400, f"Provider validation failed: {type(e).__name__}: {e}")
     return {
         "provider": manager.config.provider,
         "model": manager.config.model,
         "base_url": manager.config.base_url,
+        "validated": True,
+        "validation_message": f"Validated provider {req.provider}/{req.model}: {validation['reply']}",
     }
 
 
