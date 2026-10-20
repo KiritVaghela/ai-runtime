@@ -25,7 +25,7 @@ jobs:
       - name: Install package and test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev]" -r web/requirements.txt
 
       - name: Verify public import
         run: python -c "from ai_runtime import Agent, AgentRunner, AgentRuntime; print('Public imports succeeded')"
