@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Runtime tests (Python 3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip install "fastapi>=0.110" "uvicorn[standard]>=0.27" "python-multipart>=0.0.9" "jinja2>=3.1"
+
+      - name: Verify public import
+        run: python -c "from ai_runtime import Agent, AgentRunner, AgentRuntime; print('Public imports succeeded')"
+
+      - name: Run tests
+        run: python -m pytest -q
